@@ -9,40 +9,14 @@ const prisma = new PrismaClient();
 
 async function main() {
   const email = 'admin@leban.com';
+
   const initialPassword =
-    process.env.INITIAL_ADMIN_PASSWORD || '123456';
+    process.env.INITIAL_ADMIN_PASSWORD;
 
-  const existingAdmin = await prisma.user.findUnique({
-    where: {
-      email,
-    },
-  });
-
-  if (existingAdmin) {
-    console.log(
-      `Administrador ${email} já existe. Nenhuma senha foi alterada.`,
+  if (!initialPassword) {
+    throw new Error(
+      'A variável INITIAL_ADMIN_PASSWORD não foi configurada.',
     );
-
-    if (
-      existingAdmin.role !== UserRole.ADMIN ||
-      existingAdmin.status !== UserStatus.ACTIVE
-    ) {
-      await prisma.user.update({
-        where: {
-          email,
-        },
-        data: {
-          role: UserRole.ADMIN,
-          status: UserStatus.ACTIVE,
-        },
-      });
-
-      console.log(
-        'Função e situação do administrador foram corrigidas.',
-      );
-    }
-
-    return;
   }
 
   const passwordHash = await bcrypt.hash(
@@ -50,8 +24,17 @@ async function main() {
     10,
   );
 
-  const admin = await prisma.user.create({
-    data: {
+  const admin = await prisma.user.upsert({
+    where: {
+      email,
+    },
+    update: {
+      fullName: 'Administrador Leban',
+      passwordHash,
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+    },
+    create: {
       fullName: 'Administrador Leban',
       email,
       phone: null,
@@ -68,14 +51,14 @@ async function main() {
     },
   });
 
-  console.log('Administrador inicial criado com sucesso:');
+  console.log('Administrador criado ou atualizado com sucesso:');
   console.log(admin);
 }
 
 main()
   .catch((error) => {
     console.error(
-      'Erro ao executar o seed do administrador:',
+      'Erro ao criar ou atualizar administrador:',
       error,
     );
     process.exit(1);
