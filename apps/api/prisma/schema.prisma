@@ -1,0 +1,730 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String            @id @default(uuid())
+  fullName         String
+  email            String?           @unique
+  phone            String?           @unique
+  passwordHash     String
+  role             UserRole
+  status           UserStatus        @default(PENDING)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  alternativePhone String?
+  photoUrl         String?
+  policeAccessType PoliceAccessType?
+  auditLogs        AuditLog[]
+  dispatchMessages DispatchMessage[]
+  driverProfile    Driver?
+  ownerProfile     Owner?
+  policeProfile    PoliceOfficer?
+  PoliceUnit       PoliceUnit?
+  userPermissions  UserPermission[]
+}
+
+model Owner {
+  id             String          @id @default(uuid())
+  userId         String          @unique
+  fullName       String
+  birthDate      DateTime?
+  identityNumber String?
+  phone          String?
+  email          String?
+  nationality    String?
+  country        String?
+  address        String?
+  photoUrl       String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  motorcycles    Motorcycle[]
+  user           User            @relation(fields: [userId], references: [id])
+  documents      OwnerDocument[]
+}
+
+model Driver {
+  id                   String                 @id @default(uuid())
+  userId               String                 @unique
+  fullName             String
+  birthDate            DateTime?
+  identityNumber       String?
+  drivingLicenseNumber String?
+  phone                String?
+  email                String?
+  nationality          String?
+  country              String?
+  address              String?
+  photoUrl             String?
+  createdAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
+  user                 User                   @relation(fields: [userId], references: [id])
+  documents            DriverDocument[]
+  motorcycleLinks      DriverMotorcycleLink[]
+  authorizations       RouteAuthorization[]
+}
+
+model PoliceOfficer {
+  id                String                         @id @default(uuid())
+  userId            String                         @unique
+  fullName          String
+  identityNumber    String?
+  badgeNumber       String?
+  stationName       String?
+  phone             String?
+  photoUrl          String?
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+  rank              String?
+  function          String?
+  operationalStatus PoliceOfficerOperationalStatus @default(DISPONIVEL)
+  policeUnitId      String?
+  dispatches        Dispatch[]
+  checks            PoliceCheck[]
+  locations         PoliceLocation[]
+  PoliceUnit        PoliceUnit?                    @relation(fields: [policeUnitId], references: [id])
+  user              User                           @relation(fields: [userId], references: [id])
+  recoveryEvidences RecoveryEvidence[]
+  recoveryReports   RecoveryReport[]
+
+  @@index([operationalStatus])
+  @@index([policeUnitId])
+}
+
+model Motorcycle {
+  id             String                 @id @default(uuid())
+  ownerId        String
+  type           MotorcycleType
+  status         MotorcycleStatus       @default(ACTIVE)
+  brand          String
+  model          String?
+  color          String?
+  chassisNumber  String                 @unique
+  engineNumber   String?                @unique
+  plateNumber    String                 @unique
+  photoUrl       String?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  nationalCode   String                 @unique
+  qrToken        String                 @unique
+  alerts         Alert[]
+  dispatches     Dispatch[]
+  driverLinks    DriverMotorcycleLink[]
+  geofences      Geofence[]
+  gpsDevices     GpsDevice[]
+  owner          Owner                  @relation(fields: [ownerId], references: [id])
+  documents      MotorcycleDocument[]
+  routes         MotorcycleRoute[]
+  policeChecks   PoliceCheck[]
+  authorizations RouteAuthorization[]
+  theftReports   TheftReport[]
+}
+
+model DriverMotorcycleLink {
+  id           String     @id @default(uuid())
+  driverId     String
+  motorcycleId String
+  startDate    DateTime   @default(now())
+  endDate      DateTime?
+  isActive     Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  driver       Driver     @relation(fields: [driverId], references: [id])
+  motorcycle   Motorcycle @relation(fields: [motorcycleId], references: [id])
+
+  @@unique([driverId, motorcycleId])
+}
+
+model MotorcycleRoute {
+  id              String               @id @default(uuid())
+  motorcycleId    String
+  name            String
+  originZone      String?
+  destinationZone String?
+  allowedAreas    String[]
+  allowedDays     String[]
+  startTime       String?
+  endTime         String?
+  isActive        Boolean              @default(true)
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  motorcycle      Motorcycle           @relation(fields: [motorcycleId], references: [id])
+  authorizations  RouteAuthorization[]
+}
+
+model RouteAuthorization {
+  id                   String              @id @default(uuid())
+  motorcycleId         String
+  driverId             String
+  routeId              String?
+  requestedDestination String
+  reason               String?
+  startDateTime        DateTime
+  endDateTime          DateTime
+  status               AuthorizationStatus @default(PENDING)
+  ownerDecisionNote    String?
+  qrCodeData           String?
+  verificationCode     String?             @unique
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  driver               Driver              @relation(fields: [driverId], references: [id])
+  motorcycle           Motorcycle          @relation(fields: [motorcycleId], references: [id])
+  route                MotorcycleRoute?    @relation(fields: [routeId], references: [id])
+}
+
+model PoliceCheck {
+  id              String        @id @default(uuid())
+  policeOfficerId String
+  motorcycleId    String?
+  plateNumber     String?
+  chassisNumber   String?
+  locationText    String?
+  latitude        Float?
+  longitude       Float?
+  result          String?
+  notes           String?
+  createdAt       DateTime      @default(now())
+  motorcycle      Motorcycle?   @relation(fields: [motorcycleId], references: [id])
+  policeOfficer   PoliceOfficer @relation(fields: [policeOfficerId], references: [id])
+}
+
+model TheftReport {
+  id           String                  @id @default(uuid())
+  motorcycleId String
+  type         TheftReportType
+  status       TheftReportStatus       @default(OPEN)
+  description  String?
+  reportNumber String?
+  locationText String?
+  latitude     Float?
+  longitude    Float?
+  reportedAt   DateTime                @default(now())
+  recoveredAt  DateTime?
+  createdAt    DateTime                @default(now())
+  updatedAt    DateTime                @updatedAt
+  occurredAt   DateTime?
+  driverName   String?
+  contactPhone String?
+  alerts       Alert[]
+  motorcycle   Motorcycle              @relation(fields: [motorcycleId], references: [id])
+  attachments  TheftReportAttachment[]
+  events       TheftReportEvent[]
+}
+
+model TheftReportAttachment {
+  id            String      @id @default(uuid())
+  theftReportId String
+  fileUrl       String
+  fileName      String?
+  mimeType      String?
+  createdAt     DateTime    @default(now())
+  theftReport   TheftReport @relation(fields: [theftReportId], references: [id], onDelete: Cascade)
+
+  @@index([theftReportId])
+}
+
+model TheftReportEvent {
+  id            String      @id @default(uuid())
+  theftReportId String
+  type          String
+  title         String
+  description   String?
+  actorUserId   String?
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+  theftReport   TheftReport @relation(fields: [theftReportId], references: [id], onDelete: Cascade)
+
+  @@index([theftReportId, createdAt])
+}
+
+model GpsDevice {
+  id               String        @id @default(uuid())
+  motorcycleId     String
+  imei             String        @unique
+  simNumber        String?
+  provider         String?
+  deviceModel      String?
+  isActive         Boolean       @default(true)
+  hasBackupBattery Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  alerts           Alert[]
+  motorcycle       Motorcycle    @relation(fields: [motorcycleId], references: [id])
+  locations        GpsLocation[]
+}
+
+model GpsLocation {
+  id          String    @id @default(uuid())
+  gpsDeviceId String
+  latitude    Float
+  longitude   Float
+  speed       Float?
+  battery     Float?
+  ignitionOn  Boolean?
+  signalLevel Float?
+  recordedAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  gpsDevice   GpsDevice @relation(fields: [gpsDeviceId], references: [id])
+}
+
+model OwnerDocument {
+  id        String       @id @default(uuid())
+  ownerId   String
+  type      DocumentType
+  fileUrl   String
+  verified  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  owner     Owner        @relation(fields: [ownerId], references: [id])
+}
+
+model DriverDocument {
+  id        String       @id @default(uuid())
+  driverId  String
+  type      DocumentType
+  fileUrl   String
+  verified  Boolean      @default(false)
+  createdAt DateTime     @default(now())
+  driver    Driver       @relation(fields: [driverId], references: [id])
+}
+
+model MotorcycleDocument {
+  id           String       @id @default(uuid())
+  motorcycleId String
+  type         DocumentType
+  fileUrl      String
+  verified     Boolean      @default(false)
+  createdAt    DateTime     @default(now())
+  motorcycle   Motorcycle   @relation(fields: [motorcycleId], references: [id])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  action    String
+  entity    String?
+  entityId  String?
+  oldData   Json?
+  newData   Json?
+  ipAddress String?
+  createdAt DateTime @default(now())
+  user      User?    @relation(fields: [userId], references: [id])
+}
+
+model Alert {
+  id             String        @id @default(uuid())
+  type           AlertType
+  severity       AlertSeverity
+  status         AlertStatus   @default(OPEN)
+  title          String
+  message        String
+  motorcycleId   String?
+  gpsDeviceId    String?
+  theftReportId  String?
+  latitude       Float?
+  longitude      Float?
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  acknowledgedAt DateTime?
+  resolvedAt     DateTime?
+  gpsDevice      GpsDevice?    @relation(fields: [gpsDeviceId], references: [id])
+  motorcycle     Motorcycle?   @relation(fields: [motorcycleId], references: [id])
+  theftReport    TheftReport?  @relation(fields: [theftReportId], references: [id])
+  dispatches     Dispatch[]
+}
+
+model Permission {
+  id              String           @id @default(uuid())
+  key             String           @unique
+  name            String
+  description     String?
+  module          String?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+}
+
+model RolePermission {
+  id           String     @id @default(uuid())
+  role         UserRole
+  permissionId String
+  createdAt    DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id])
+
+  @@unique([role, permissionId])
+}
+
+model UserPermission {
+  id           String     @id @default(uuid())
+  userId       String
+  permissionId String
+  allowed      Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  permission   Permission @relation(fields: [permissionId], references: [id])
+  user         User       @relation(fields: [userId], references: [id])
+
+  @@unique([userId, permissionId])
+}
+
+model Geofence {
+  id           String        @id @default(uuid())
+  motorcycleId String
+  name         String
+  type         GeofenceType
+  shape        GeofenceShape @default(CIRCLE)
+  centerLat    Float
+  centerLng    Float
+  radiusMeters Float
+  isActive     Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  motorcycle   Motorcycle    @relation(fields: [motorcycleId], references: [id])
+}
+
+model Dispatch {
+  id                 String             @id @default(uuid())
+  code               String             @unique
+  alertId            String?
+  motorcycleId       String?
+  policeOfficerId    String?
+  title              String
+  description        String?
+  priority           DispatchPriority   @default(MEDIUM)
+  status             DispatchStatus     @default(OPEN)
+  assignedAt         DateTime?
+  startedAt          DateTime?
+  resolvedAt         DateTime?
+  cancelledAt        DateTime?
+  notes              String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  acceptedAt         DateTime?
+  arrivedAt          DateTime?
+  onRouteAt          DateTime?
+  recoveredAt        DateTime?
+  searchingAt        DateTime?
+  policeUnitId       String?
+  serviceDescription String?
+  vehicleRecovered   Boolean            @default(false)
+  arrestMade         Boolean            @default(false)
+  completionNotes    String?
+  alert              Alert?             @relation(fields: [alertId], references: [id])
+  motorcycle         Motorcycle?        @relation(fields: [motorcycleId], references: [id])
+  policeOfficer      PoliceOfficer?     @relation(fields: [policeOfficerId], references: [id])
+  PoliceUnit         PoliceUnit?        @relation(fields: [policeUnitId], references: [id])
+  events             DispatchEvent[]
+  messages           DispatchMessage[]
+  policeLocations    PoliceLocation[]
+  recoveryEvidences  RecoveryEvidence[]
+  recoveryReport     RecoveryReport?
+
+  @@index([policeOfficerId, status])
+  @@index([policeUnitId])
+  @@index([policeUnitId, status])
+}
+
+model DispatchEvent {
+  id          String            @id @default(uuid())
+  dispatchId  String
+  type        DispatchEventType
+  status      DispatchStatus?
+  title       String
+  description String?
+  latitude    Float?
+  longitude   Float?
+  metadata    Json?
+  createdAt   DateTime          @default(now())
+  dispatch    Dispatch          @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+
+  @@index([dispatchId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model PoliceLocation {
+  id              String        @id @default(uuid())
+  policeOfficerId String
+  dispatchId      String?
+  latitude        Float
+  longitude       Float
+  accuracy        Float?
+  speed           Float?
+  heading         Float?
+  isActive        Boolean       @default(true)
+  recordedAt      DateTime      @default(now())
+  createdAt       DateTime      @default(now())
+  dispatch        Dispatch?     @relation(fields: [dispatchId], references: [id])
+  policeOfficer   PoliceOfficer @relation(fields: [policeOfficerId], references: [id], onDelete: Cascade)
+
+  @@index([policeOfficerId])
+  @@index([dispatchId])
+  @@index([isActive])
+  @@index([recordedAt])
+  @@index([policeOfficerId, dispatchId, isActive])
+}
+
+model DispatchMessage {
+  id         String                    @id @default(uuid())
+  dispatchId String
+  senderId   String?
+  senderType DispatchMessageSenderType
+  message    String
+  latitude   Float?
+  longitude  Float?
+  isRead     Boolean                   @default(false)
+  readAt     DateTime?
+  createdAt  DateTime                  @default(now())
+  updatedAt  DateTime                  @updatedAt
+  dispatch   Dispatch                  @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  sender     User?                     @relation(fields: [senderId], references: [id])
+
+  @@index([dispatchId])
+  @@index([senderId])
+  @@index([isRead])
+  @@index([createdAt])
+}
+
+model RecoveryEvidence {
+  id              String               @id @default(uuid())
+  dispatchId      String
+  policeOfficerId String?
+  type            RecoveryEvidenceType
+  fileUrl         String
+  originalName    String?
+  mimeType        String?
+  sizeBytes       Int?
+  notes           String?
+  latitude        Float?
+  longitude       Float?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  dispatch        Dispatch             @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  policeOfficer   PoliceOfficer?       @relation(fields: [policeOfficerId], references: [id])
+
+  @@index([dispatchId])
+  @@index([policeOfficerId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model RecoveryReport {
+  id                  String              @id @default(uuid())
+  dispatchId          String              @unique
+  policeOfficerId     String?
+  motorcycleCondition MotorcycleCondition
+  detailedReport      String
+  policeReportNumber  String?
+  keyFound            Boolean             @default(false)
+  arrestOccurred      Boolean             @default(false)
+  suspectsCount       Int                 @default(0)
+  confrontation       Boolean             @default(false)
+  injuredPeople       Boolean             @default(false)
+  ownerPresent        Boolean             @default(false)
+  recoveredObjects    String?
+  latitude            Float?
+  longitude           Float?
+  completedAt         DateTime            @default(now())
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  dispatch            Dispatch            @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  policeOfficer       PoliceOfficer?      @relation(fields: [policeOfficerId], references: [id])
+
+  @@index([policeOfficerId])
+  @@index([completedAt])
+}
+
+model PoliceUnit {
+  id            String          @id
+  userId        String          @unique
+  name          String
+  type          PoliceUnitType
+  city          String
+  neighborhood  String?
+  address       String?
+  phone         String?
+  email         String
+  latitude      Float?
+  longitude     Float?
+  isActive      Boolean         @default(true)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime
+  Dispatch      Dispatch[]
+  PoliceOfficer PoliceOfficer[]
+  User          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum PoliceAccessType {
+  PATROL
+  OPERATIONS
+}
+
+enum UserRole {
+  ADMIN
+  OPERADOR
+  PROPRIETARIO
+  MOTORISTA
+  POLICIA
+  SUPERVISOR_POLICIA
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  BLOCKED
+}
+
+enum MotorcycleType {
+  PARTICULAR
+  MOTO_TAXI
+}
+
+enum MotorcycleStatus {
+  ACTIVE
+  SUSPENDED
+  STOLEN
+  ROBBED
+  RECOVERED
+  INVESTIGATION
+  BLOCKED
+}
+
+enum DocumentType {
+  IDENTITY
+  PURCHASE_PROOF
+  RESIDENCE_PROOF
+  DRIVING_LICENSE
+  MOTORCYCLE_REGISTRATION
+  OTHER
+}
+
+enum AuthorizationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum TheftReportType {
+  FURTO
+  ROUBO
+  DESAPARECIDA
+}
+
+enum TheftReportStatus {
+  OPEN
+  INVESTIGATING
+  RECOVERED
+  CLOSED
+}
+
+enum DispatchStatus {
+  OPEN
+  ASSIGNED
+  IN_PROGRESS
+  RESOLVED
+  CANCELLED
+  ACCEPTED
+  ON_ROUTE
+  ARRIVED
+  SEARCHING
+  RECOVERED
+}
+
+enum DispatchEventType {
+  CREATED
+  ASSIGNED
+  ACCEPTED
+  ON_ROUTE
+  ARRIVED
+  SEARCHING
+  RECOVERED
+  RESOLVED
+  CANCELLED
+  NOTE
+}
+
+enum DispatchPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum DispatchMessageSenderType {
+  CENTRAL
+  POLICE
+  SYSTEM
+}
+
+enum RecoveryEvidenceType {
+  PHOTO
+  VIDEO
+  DOCUMENT
+  AUDIO
+}
+
+enum MotorcycleCondition {
+  INTACT
+  DAMAGED
+  DISMANTLED
+  ABANDONED
+  BURNED
+  OTHER
+}
+
+enum AlertType {
+  THEFT_GPS_SIGNAL
+  LOW_GPS_BATTERY
+  GPS_NO_SIGNAL
+  MOTORCYCLE_OUT_OF_ROUTE
+  UNAUTHORIZED_DRIVER
+  AUTHORIZATION_EXPIRED
+  GPS_DEVICE_REMOVED
+  MANUAL_ALERT
+}
+
+enum AlertSeverity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum AlertStatus {
+  OPEN
+  ACKNOWLEDGED
+  RESOLVED
+  DISMISSED
+}
+
+enum GeofenceType {
+  ALLOWED_AREA
+  RESTRICTED_AREA
+  WARNING_AREA
+}
+
+enum GeofenceShape {
+  CIRCLE
+}
+
+enum PoliceOfficerOperationalStatus {
+  DISPONIVEL
+  EM_MISSAO
+  DE_FOLGA
+  INATIVO
+}
+
+enum PoliceUnitType {
+  ESQUADRA
+  GUARDA_NACIONAL
+  POLICIA_TRANSITO
+  POLICIA_JUDICIARIA
+  GUARDA_COSTEIRA
+}
