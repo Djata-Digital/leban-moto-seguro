@@ -35,6 +35,10 @@ export class CreateDriverDto {
   @IsString()
   address?: string;
 
+  @IsOptional()
+  @IsString()
+  photoUrl?: string;
+
   /*
    * Estes campos não existem diretamente em Driver.
    * Eles são recebidos para criar DriverDocument.

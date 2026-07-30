@@ -245,7 +245,7 @@ export function PoliceMobilePage() {
             value,
         );
 
-        if (offlineResult) {
+        if (offlineResult && !navigator.onLine) {
         setMotorcycle(
             offlineResult,
         );
@@ -1164,7 +1164,31 @@ function getCurrentDriver(
       (link) => link.isActive,
     );
 
-  return activeLink?.driver ?? null;
+  const driver = activeLink?.driver;
+
+  if (!driver) {
+    return null;
+  }
+
+  return {
+    ...driver,
+    fullName:
+      driver.fullName ??
+      driver.user?.fullName ??
+      'Não informado',
+    phone:
+      driver.phone ??
+      driver.user?.phone ??
+      null,
+    email:
+      driver.email ??
+      driver.user?.email ??
+      null,
+    photoUrl:
+      driver.photoUrl ??
+      driver.user?.photoUrl ??
+      null,
+  };
 }
 
 function buildInspectionImages(

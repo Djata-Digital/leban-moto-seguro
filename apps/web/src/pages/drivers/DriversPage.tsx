@@ -40,6 +40,10 @@ type DriverDocument = {
 type Driver = {
   id: string;
   userId: string;
+  fullName?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  photoUrl?: string | null;
 
   birthDate?: string | null;
   identityNumber?: string | null;
@@ -135,6 +139,9 @@ export function DriversPage() {
   const [saving, setSaving] =
     useState(false);
 
+  const [uploadingDriverId, setUploadingDriverId] =
+    useState<string | null>(null);
+
   const [showForm, setShowForm] =
     useState(false);
 
@@ -146,6 +153,11 @@ export function DriversPage() {
 
   const [form, setForm] =
     useState(initialForm);
+
+  const [
+    profileFile,
+    setProfileFile,
+  ] = useState<File | null>(null);
 
   const [
     identityFile,
@@ -233,8 +245,18 @@ export function DriversPage() {
 
   function resetForm() {
     setForm(initialForm);
+    setProfileFile(null);
     setIdentityFile(null);
     setDrivingLicenseFile(null);
+  }
+
+  function handleProfileFile(
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file =
+      event.target.files?.[0] ?? null;
+
+    setProfileFile(file);
   }
 
   function handleIdentityFile(
@@ -286,6 +308,49 @@ export function DriversPage() {
     return uploadedUrl;
   }
 
+  async function handleExistingDriverPhoto(
+    driver: Driver,
+    event: ChangeEvent<HTMLInputElement>,
+  ) {
+    const file = event.target.files?.[0];
+
+    event.target.value = '';
+
+    if (!file) {
+      return;
+    }
+
+    setError('');
+    setSuccess('');
+    setUploadingDriverId(driver.id);
+
+    try {
+      const photoUrl = await uploadFile(
+        file,
+        '/uploads/drivers/profile',
+      );
+
+      await api.patch(`/drivers/${driver.id}`, {
+        photoUrl,
+      });
+
+      setSuccess('Foto do motorista atualizada com sucesso.');
+      await loadData();
+    } catch (err: any) {
+      const message = err.response?.data?.message;
+
+      setError(
+        Array.isArray(message)
+          ? message.join(', ')
+          : message ??
+              err.message ??
+              'Não foi possível atualizar a foto do motorista.',
+      );
+    } finally {
+      setUploadingDriverId(null);
+    }
+  }
+
   async function handleSubmit(
     event: FormEvent,
   ) {
@@ -305,6 +370,10 @@ export function DriversPage() {
     setSaving(true);
 
     try {
+      let photoUrl:
+        | string
+        | undefined;
+
       let identityDocumentUrl:
         | string
         | undefined;
@@ -312,6 +381,13 @@ export function DriversPage() {
       let drivingLicenseDocumentUrl:
         | string
         | undefined;
+
+      if (profileFile) {
+        photoUrl = await uploadFile(
+          profileFile,
+          '/uploads/drivers/profile',
+        );
+      }
 
       if (identityFile) {
         identityDocumentUrl =
@@ -355,6 +431,7 @@ export function DriversPage() {
           form.address.trim() ||
           undefined,
 
+        photoUrl,
         identityDocumentUrl,
         drivingLicenseDocumentUrl,
       });
@@ -615,7 +692,15 @@ export function DriversPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <FileInput
+              label="Foto de perfil"
+              description="Imagem do rosto do motorista (JPG, PNG ou WEBP)."
+              accept="image/jpeg,image/png,image/webp"
+              file={profileFile}
+              onChange={handleProfileFile}
+            />
+
             <FileInput
               label="Documento de identidade"
               description="Imagem ou PDF do BI/CIN."
@@ -711,6 +796,7 @@ export function DriversPage() {
                     <div className="flex items-center gap-3">
                       <Avatar
                         photoUrl={
+                          driver.photoUrl ??
                           driver.user
                             ?.photoUrl
                         }
@@ -733,6 +819,24 @@ export function DriversPage() {
                             ?.email ??
                             'Sem e-mail'}
                         </p>
+
+                        <label className="mt-1 inline-flex cursor-pointer text-xs font-semibold text-blue-600 hover:text-blue-700">
+                          {uploadingDriverId === driver.id
+                            ? 'Enviando foto...'
+                            : driver.photoUrl || driver.user?.photoUrl
+                              ? 'Alterar foto'
+                              : 'Adicionar foto'}
+
+                          <input
+                            type="file"
+                            accept="image/jpeg,image/png,image/webp"
+                            disabled={uploadingDriverId !== null}
+                            onChange={(event) =>
+                              void handleExistingDriverPhoto(driver, event)
+                            }
+                            className="hidden"
+                          />
+                        </label>
                       </div>
                     </div>
                   </td>

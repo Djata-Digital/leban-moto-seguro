@@ -80,7 +80,9 @@ export class DriversService {
                 fullName: user.fullName,
                 phone: user.phone,
                 email: user.email,
-                photoUrl: user.photoUrl,
+                photoUrl:
+                  dto.photoUrl?.trim() ||
+                  user.photoUrl,
 
                 birthDate: dto.birthDate
                   ? new Date(dto.birthDate)
@@ -107,6 +109,13 @@ export class DriversService {
                   undefined,
               },
             });
+
+          if (dto.photoUrl?.trim()) {
+            await transaction.user.update({
+              where: { id: user.id },
+              data: { photoUrl: dto.photoUrl.trim() },
+            });
+          }
 
           const documents: Prisma.DriverDocumentCreateManyInput[] =
             [];
@@ -256,8 +265,29 @@ export class DriversService {
               dto.address !== undefined
                 ? dto.address.trim() || null
                 : undefined,
+
+            photoUrl:
+              dto.photoUrl !== undefined
+                ? dto.photoUrl.trim() || null
+                : undefined,
           },
         });
+
+        if (dto.photoUrl !== undefined) {
+          const driver = await transaction.driver.findUnique({
+            where: { id },
+            select: { userId: true },
+          });
+
+          if (driver) {
+            await transaction.user.update({
+              where: { id: driver.userId },
+              data: {
+                photoUrl: dto.photoUrl.trim() || null,
+              },
+            });
+          }
+        }
 
         if (dto.identityDocumentUrl?.trim()) {
           await this.saveOrReplaceDocument(

@@ -29,6 +29,10 @@ export class UpdateDriverDto {
   @IsString()
   address?: string;
 
+  @IsOptional()
+  @IsString()
+  photoUrl?: string;
+
   /*
    * Novos documentos enviados durante uma atualização.
    */
