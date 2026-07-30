@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma/prisma.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { UploadsModule } from '../uploads/uploads.module';
+
 import { RecoveryEvidencesController } from './recovery-evidences.controller';
 import { RecoveryEvidencesService } from './recovery-evidences.service';
 
@@ -9,6 +11,7 @@ import { RecoveryEvidencesService } from './recovery-evidences.service';
   imports: [
     PrismaModule,
     RealtimeModule,
+    UploadsModule,
   ],
 
   controllers: [
