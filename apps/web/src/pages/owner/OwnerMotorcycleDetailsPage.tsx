@@ -19,7 +19,6 @@ import { api } from '../../api/api';
 import { ClickableImage } from '../../components/images/ClickableImage';
 import { ImageViewer, type ViewerImage } from '../../components/images/ImageViewer';
 import { resolveMediaUrl } from '../../utils/mediaUrl';
-import { IgnitionControlPanel } from '../../components/ignition/IgnitionControlPanel';
 
 type MotorcycleDetails = {
   id: string;
@@ -235,8 +234,6 @@ export function OwnerMotorcycleDetailsPage() {
           </div>
         </div>
       </section>
-
-      <IgnitionControlPanel motorcycleId={motorcycle.id} />
 
       <div className="grid gap-6 xl:grid-cols-2">
         <Section title="Dados da mota" icon={Bike}>

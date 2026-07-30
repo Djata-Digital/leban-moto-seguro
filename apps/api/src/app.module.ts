@@ -28,7 +28,6 @@ import { DispatchMessagesModule } from './dispatch-messages/dispatch-messages.mo
 import { RecoveryEvidencesModule } from './recovery-evidences/recovery-evidences.module';
 import { RecoveryReportsModule } from './recovery-reports/recovery-reports.module';
 import { OwnerPortalModule } from './owner-portal/owner-portal.module';
-import { IgnitionCommandsModule } from './ignition-commands/ignition-commands.module';
 
 @Module({
   imports: [
@@ -63,7 +62,6 @@ import { IgnitionCommandsModule } from './ignition-commands/ignition-commands.mo
     RecoveryEvidencesModule,
     RecoveryReportsModule,
     OwnerPortalModule,
-    IgnitionCommandsModule,
   ],
 })
 export class AppModule {}
