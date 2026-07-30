@@ -9,11 +9,14 @@ const socketUrl =
   apiUrl.replace(/\/api\/v1\/?$/, '');
 
 export const socket = io(socketUrl, {
-  transports: ['websocket'],
+  // Permite iniciar por polling e depois migrar para WebSocket.
+  // Isso funciona melhor em hospedagens como o Render.
+  transports: ['polling', 'websocket'],
+
   autoConnect: true,
   reconnection: true,
-  reconnectionAttempts: Infinity,
-  reconnectionDelay: 1000,
-  reconnectionDelayMax: 5000,
-  timeout: 20000,
+  reconnectionAttempts: 10,
+  reconnectionDelay: 2000,
+  reconnectionDelayMax: 10000,
+  timeout: 30000,
 });
