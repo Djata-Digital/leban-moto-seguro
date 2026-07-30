@@ -11,18 +11,53 @@ import { UpdateDriverMotorcycleLinkDto } from './dto/update-driver-motorcycle-li
 export class DriverMotorcycleLinksService {
   constructor(private readonly prisma: PrismaService) {}
 
+  private readonly linkInclude = {
+    driver: {
+      include: {
+        user: {
+          select: {
+            id: true,
+            fullName: true,
+            email: true,
+            phone: true,
+            photoUrl: true,
+            status: true,
+          },
+        },
+      },
+    },
+    motorcycle: {
+      include: {
+        owner: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                fullName: true,
+                phone: true,
+                photoUrl: true,
+              },
+            },
+          },
+        },
+      },
+    },
+  };
+
   async create(dto: CreateDriverMotorcycleLinkDto) {
-    const driver = await this.prisma.driver.findUnique({
-      where: { id: dto.driverId },
-    });
+    const [driver, motorcycle] = await Promise.all([
+      this.prisma.driver.findUnique({
+        where: { id: dto.driverId },
+        include: { user: true },
+      }),
+      this.prisma.motorcycle.findUnique({
+        where: { id: dto.motorcycleId },
+      }),
+    ]);
 
     if (!driver) {
       throw new NotFoundException('Motorista não encontrado');
     }
-
-    const motorcycle = await this.prisma.motorcycle.findUnique({
-      where: { id: dto.motorcycleId },
-    });
 
     if (!motorcycle) {
       throw new NotFoundException('Mota não encontrada');
@@ -34,68 +69,78 @@ export class DriverMotorcycleLinksService {
       );
     }
 
-    const existingLink = await this.prisma.driverMotorcycleLink.findUnique({
-      where: {
-        driverId_motorcycleId: {
-          driverId: dto.driverId,
-          motorcycleId: dto.motorcycleId,
-        },
-      },
-    });
-
-    if (existingLink && existingLink.isActive) {
+    if (driver.user?.status && driver.user.status !== 'ACTIVE') {
       throw new BadRequestException(
-        'Este motorista já está vinculado a esta mota',
+        'Não é possível vincular um motorista com conta inativa',
       );
     }
 
-    if (existingLink && !existingLink.isActive) {
-      return this.prisma.driverMotorcycleLink.update({
-        where: { id: existingLink.id },
-        data: {
-          startDate: dto.startDate ? new Date(dto.startDate) : new Date(),
-          endDate: dto.endDate ? new Date(dto.endDate) : null,
+    const startDate = dto.startDate ? new Date(dto.startDate) : new Date();
+    const endDate = dto.endDate ? new Date(dto.endDate) : null;
+
+    return this.prisma.$transaction(async (transaction) => {
+      // Uma mota só pode ter um motorista ativo e um motorista só pode
+      // conduzir uma mota ativa por vez. Os vínculos anteriores ficam no histórico.
+      await transaction.driverMotorcycleLink.updateMany({
+        where: {
           isActive: true,
+          OR: [
+            { motorcycleId: dto.motorcycleId },
+            { driverId: dto.driverId },
+          ],
         },
-        include: {
-          driver: true,
-          motorcycle: true,
+        data: {
+          isActive: false,
+          endDate: new Date(),
         },
       });
-    }
 
-    return this.prisma.driverMotorcycleLink.create({
-      data: {
-        driverId: dto.driverId,
-        motorcycleId: dto.motorcycleId,
-        startDate: dto.startDate ? new Date(dto.startDate) : new Date(),
-        endDate: dto.endDate ? new Date(dto.endDate) : undefined,
-        isActive: true,
-      },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      const existingLink =
+        await transaction.driverMotorcycleLink.findUnique({
+          where: {
+            driverId_motorcycleId: {
+              driverId: dto.driverId,
+              motorcycleId: dto.motorcycleId,
+            },
+          },
+        });
+
+      if (existingLink) {
+        return transaction.driverMotorcycleLink.update({
+          where: { id: existingLink.id },
+          data: {
+            startDate,
+            endDate,
+            isActive: true,
+          },
+          include: this.linkInclude,
+        });
+      }
+
+      return transaction.driverMotorcycleLink.create({
+        data: {
+          driverId: dto.driverId,
+          motorcycleId: dto.motorcycleId,
+          startDate,
+          endDate: endDate ?? undefined,
+          isActive: true,
+        },
+        include: this.linkInclude,
+      });
     });
   }
 
   async findAll() {
     return this.prisma.driverMotorcycleLink.findMany({
       orderBy: { createdAt: 'desc' },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      include: this.linkInclude,
     });
   }
 
   async findById(id: string) {
     const link = await this.prisma.driverMotorcycleLink.findUnique({
       where: { id },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      include: this.linkInclude,
     });
 
     if (!link) {
@@ -109,10 +154,7 @@ export class DriverMotorcycleLinksService {
     return this.prisma.driverMotorcycleLink.findMany({
       where: { motorcycleId },
       orderBy: { createdAt: 'desc' },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      include: this.linkInclude,
     });
   }
 
@@ -120,10 +162,7 @@ export class DriverMotorcycleLinksService {
     return this.prisma.driverMotorcycleLink.findMany({
       where: { driverId },
       orderBy: { createdAt: 'desc' },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      include: this.linkInclude,
     });
   }
 
@@ -137,10 +176,7 @@ export class DriverMotorcycleLinksService {
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
         isActive: dto.isActive,
       },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      include: this.linkInclude,
     });
   }
 
@@ -153,18 +189,12 @@ export class DriverMotorcycleLinksService {
         isActive: false,
         endDate: new Date(),
       },
-      include: {
-        driver: true,
-        motorcycle: true,
-      },
+      include: this.linkInclude,
     });
   }
 
   async remove(id: string) {
     await this.findById(id);
-
-    return this.prisma.driverMotorcycleLink.delete({
-      where: { id },
-    });
+    return this.prisma.driverMotorcycleLink.delete({ where: { id } });
   }
 }

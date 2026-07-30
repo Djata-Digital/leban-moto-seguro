@@ -25,6 +25,29 @@ type Owner = {
   fullName: string;
 };
 
+type Driver = {
+  id: string;
+  fullName?: string | null;
+  phone?: string | null;
+  photoUrl?: string | null;
+  user?: {
+    fullName?: string | null;
+    phone?: string | null;
+    photoUrl?: string | null;
+    status?: string | null;
+  };
+};
+
+type DriverMotorcycleLink = {
+  id: string;
+  driverId: string;
+  motorcycleId: string;
+  isActive: boolean;
+  startDate: string;
+  endDate?: string | null;
+  driver: Driver;
+};
+
 type MotorcycleDocument = {
   id: string;
   fileUrl: string;
@@ -52,7 +75,7 @@ type Motorcycle = {
   };
 
   documents?: MotorcycleDocument[];
-  driverLinks?: unknown[];
+  driverLinks?: DriverMotorcycleLink[];
   routes?: unknown[];
   gpsDevices?: unknown[];
   theftReports?: unknown[];
@@ -90,6 +113,31 @@ export function MotorcyclesPage() {
     owners,
     setOwners,
   ] = useState<Owner[]>([]);
+
+  const [
+    drivers,
+    setDrivers,
+  ] = useState<Driver[]>([]);
+
+  const [
+    selectedMotorcycle,
+    setSelectedMotorcycle,
+  ] = useState<Motorcycle | null>(null);
+
+  const [
+    selectedDriverId,
+    setSelectedDriverId,
+  ] = useState('');
+
+  const [
+    savingLink,
+    setSavingLink,
+  ] = useState(false);
+
+  const [
+    successMessage,
+    setSuccessMessage,
+  ] = useState('');
 
   const [
     loading,
@@ -149,9 +197,11 @@ export function MotorcyclesPage() {
       const [
         motorcyclesResponse,
         ownersResponse,
+        driversResponse,
       ] = await Promise.all([
         api.get('/motorcycles'),
         api.get('/owners'),
+        api.get('/drivers'),
       ]);
 
       setMotorcycles(
@@ -160,6 +210,10 @@ export function MotorcyclesPage() {
 
       setOwners(
         ownersResponse.data.data ?? [],
+      );
+
+      setDrivers(
+        driversResponse.data.data ?? [],
       );
     } catch (error) {
       console.error(error);
@@ -368,6 +422,95 @@ export function MotorcyclesPage() {
     }
   }
 
+
+  function getDriverName(driver?: Driver) {
+    return (
+      driver?.user?.fullName ??
+      driver?.fullName ??
+      'Motorista sem nome'
+    );
+  }
+
+  function openDriverLink(motorcycle: Motorcycle) {
+    const activeLink = motorcycle.driverLinks?.find(
+      (link) => link.isActive,
+    );
+
+    setSelectedMotorcycle(motorcycle);
+    setSelectedDriverId(activeLink?.driverId ?? '');
+    setErrorMessage('');
+    setSuccessMessage('');
+  }
+
+  function closeDriverLink() {
+    setSelectedMotorcycle(null);
+    setSelectedDriverId('');
+  }
+
+  async function saveDriverLink() {
+    if (!selectedMotorcycle || !selectedDriverId) {
+      setErrorMessage('Selecione um motorista.');
+      return;
+    }
+
+    setSavingLink(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await api.post('/driver-motorcycle-links', {
+        driverId: selectedDriverId,
+        motorcycleId: selectedMotorcycle.id,
+      });
+
+      setSuccessMessage('Motorista vinculado à mota com sucesso.');
+      closeDriverLink();
+      await loadData();
+    } catch (error: any) {
+      const apiMessage = error?.response?.data?.message;
+      setErrorMessage(
+        Array.isArray(apiMessage)
+          ? apiMessage.join(', ')
+          : apiMessage ?? 'Não foi possível vincular o motorista.',
+      );
+    } finally {
+      setSavingLink(false);
+    }
+  }
+
+  async function deactivateDriverLink() {
+    const activeLink = selectedMotorcycle?.driverLinks?.find(
+      (link) => link.isActive,
+    );
+
+    if (!activeLink) {
+      return;
+    }
+
+    setSavingLink(true);
+    setErrorMessage('');
+    setSuccessMessage('');
+
+    try {
+      await api.patch(
+        `/driver-motorcycle-links/${activeLink.id}/deactivate`,
+      );
+
+      setSuccessMessage('Motorista desvinculado da mota com sucesso.');
+      closeDriverLink();
+      await loadData();
+    } catch (error: any) {
+      const apiMessage = error?.response?.data?.message;
+      setErrorMessage(
+        Array.isArray(apiMessage)
+          ? apiMessage.join(', ')
+          : apiMessage ?? 'Não foi possível desvincular o motorista.',
+      );
+    } finally {
+      setSavingLink(false);
+    }
+  }
+
   function closeForm() {
     setShowForm(false);
     setForm(initialForm);
@@ -414,6 +557,12 @@ export function MotorcyclesPage() {
             : 'Nova Mota'}
         </button>
       </div>
+
+      {successMessage && (
+        <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+          {successMessage}
+        </div>
+      )}
 
       {errorMessage && (
         <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
@@ -647,6 +796,73 @@ export function MotorcyclesPage() {
         </form>
       )}
 
+
+      {selectedMotorcycle && (
+        <div className="rounded-xl border border-blue-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end">
+            <div className="flex-1">
+              <h2 className="text-lg font-bold text-slate-900">
+                Vincular motorista
+              </h2>
+              <p className="text-sm text-slate-500">
+                {selectedMotorcycle.brand} {selectedMotorcycle.model ?? ''} — placa {selectedMotorcycle.plateNumber}
+              </p>
+
+              <label className="mt-4 block text-sm font-medium">
+                Motorista
+              </label>
+              <select
+                value={selectedDriverId}
+                onChange={(event) => setSelectedDriverId(event.target.value)}
+                disabled={savingLink}
+                className="mt-1 w-full rounded-lg border px-3 py-2 disabled:bg-slate-100"
+              >
+                <option value="">Selecione um motorista</option>
+                {drivers.map((driver) => (
+                  <option key={driver.id} value={driver.id}>
+                    {getDriverName(driver)}
+                    {driver.user?.phone || driver.phone
+                      ? ` — ${driver.user?.phone ?? driver.phone}`
+                      : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={closeDriverLink}
+                disabled={savingLink}
+                className="rounded-lg border px-4 py-2 text-sm hover:bg-slate-50 disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+
+              {selectedMotorcycle.driverLinks?.some((link) => link.isActive) && (
+                <button
+                  type="button"
+                  onClick={() => void deactivateDriverLink()}
+                  disabled={savingLink}
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700 disabled:opacity-50"
+                >
+                  Desvincular atual
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => void saveDriverLink()}
+                disabled={savingLink || !selectedDriverId}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {savingLink ? 'Salvando...' : 'Salvar vínculo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border rounded-xl shadow-sm overflow-x-auto">
         <table className="w-full min-w-[1100px] text-sm">
           <thead>
@@ -752,8 +968,18 @@ export function MotorcyclesPage() {
                 </td>
 
                 <td>
-                  {moto.driverLinks
-                    ?.length ?? 0}
+                  {moto.driverLinks?.find((link) => link.isActive) ? (
+                    <div>
+                      <p className="font-medium text-slate-900">
+                        {getDriverName(
+                          moto.driverLinks.find((link) => link.isActive)?.driver,
+                        )}
+                      </p>
+                      <p className="text-xs text-green-700">Vinculado</p>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">Sem motorista</span>
+                  )}
                 </td>
 
                 <td>
@@ -768,6 +994,16 @@ export function MotorcyclesPage() {
 
                 <td className="p-3">
                   <div className="flex min-w-[180px] flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openDriverLink(moto)}
+                      className="text-left font-medium text-blue-600 hover:underline"
+                    >
+                      {moto.driverLinks?.some((link) => link.isActive)
+                        ? 'Trocar motorista'
+                        : 'Vincular motorista'}
+                    </button>
+
                     <Link
                       to={`/motorcycles/${moto.id}/360`}
                       className="font-medium text-purple-600 hover:underline"
