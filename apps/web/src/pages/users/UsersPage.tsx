@@ -31,6 +31,7 @@ type UserForm = {
   password: string;
   confirmPassword: string;
   role: string;
+  status: string;
 };
 
 type UploadResponse = {
@@ -51,6 +52,7 @@ const initialForm: UserForm = {
   password: '',
   confirmPassword: '',
   role: 'PROPRIETARIO',
+  status: 'ACTIVE',
 };
 
 const acceptedImageTypes = [
@@ -68,6 +70,8 @@ export function UsersPage() {
   const [form, setForm] = useState<UserForm>(initialForm);
 
   const [showForm, setShowForm] = useState(false);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
+  const [removeCurrentPhoto, setRemoveCurrentPhoto] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -102,7 +106,7 @@ export function UsersPage() {
 
   useEffect(() => {
     return () => {
-      if (photoPreview) {
+      if (photoPreview?.startsWith('blob:')) {
         URL.revokeObjectURL(photoPreview);
       }
     };
@@ -127,9 +131,38 @@ export function UsersPage() {
   }
 
   function openForm() {
+    resetForm();
+    setEditingUser(null);
     setShowForm(true);
     setError('');
     setSuccessMessage('');
+  }
+
+  function openEditForm(user: User) {
+    resetForm();
+
+    setEditingUser(user);
+    setForm({
+      fullName: user.fullName ?? '',
+      email: user.email ?? '',
+      phone: user.phone ?? '',
+      alternativePhone: user.alternativePhone ?? '',
+      password: '',
+      confirmPassword: '',
+      role: user.role,
+      status: user.status,
+    });
+
+    setPhotoPreview(resolveFileUrl(user.photoUrl));
+    setRemoveCurrentPhoto(false);
+    setShowForm(true);
+    setError('');
+    setSuccessMessage('');
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
   }
 
   function closeForm() {
@@ -144,8 +177,10 @@ export function UsersPage() {
   function resetForm() {
     setForm(initialForm);
     setSelectedPhoto(null);
+    setEditingUser(null);
+    setRemoveCurrentPhoto(false);
 
-    if (photoPreview) {
+    if (photoPreview?.startsWith('blob:')) {
       URL.revokeObjectURL(photoPreview);
     }
 
@@ -182,21 +217,23 @@ export function UsersPage() {
       return;
     }
 
-    if (photoPreview) {
+    if (photoPreview?.startsWith('blob:')) {
       URL.revokeObjectURL(photoPreview);
     }
 
     setSelectedPhoto(file);
+    setRemoveCurrentPhoto(false);
     setPhotoPreview(URL.createObjectURL(file));
   }
 
   function removePhoto() {
-    if (photoPreview) {
+    if (photoPreview?.startsWith('blob:')) {
       URL.revokeObjectURL(photoPreview);
     }
 
     setSelectedPhoto(null);
     setPhotoPreview(null);
+    setRemoveCurrentPhoto(Boolean(editingUser?.photoUrl));
 
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -216,11 +253,11 @@ export function UsersPage() {
       return 'Informe um número de telefone válido.';
     }
 
-    if (!form.password) {
+    if (!editingUser && !form.password) {
       return 'Informe a senha inicial.';
     }
 
-    if (form.password.length < 6) {
+    if (form.password && form.password.length < 6) {
       return 'A senha deve possuir pelo menos 6 caracteres.';
     }
 
@@ -300,11 +337,11 @@ export function UsersPage() {
     setSaving(true);
 
     try {
-      const photoUrl = await uploadProfilePhoto();
+      const uploadedPhotoUrl = await uploadProfilePhoto();
 
-      await api.post('/users', {
+      const payload = {
         fullName: form.fullName.trim(),
-        email: form.email.trim() || undefined,
+        email: form.email.trim() || null,
 
         /*
          * O telefone é enviado sem espaços, parênteses ou hífens.
@@ -313,17 +350,48 @@ export function UsersPage() {
         phone: normalizedPhone,
 
         alternativePhone:
-          normalizePhone(form.alternativePhone) || undefined,
+          normalizePhone(form.alternativePhone) || null,
 
-        password: form.password,
+        ...(form.password
+          ? { password: form.password }
+          : {}),
+
         role: form.role,
-        photoUrl,
-      });
+        status: form.status,
+
+        ...(uploadedPhotoUrl
+          ? { photoUrl: uploadedPhotoUrl }
+          : removeCurrentPhoto
+            ? { photoUrl: null }
+            : {}),
+      };
+
+      if (editingUser) {
+        await api.patch(`/users/${editingUser.id}`, payload);
+      } else {
+        await api.post('/users', {
+          fullName: payload.fullName,
+          email: payload.email,
+          phone: payload.phone,
+          alternativePhone: payload.alternativePhone,
+          password: form.password,
+          role: payload.role,
+          ...('photoUrl' in payload
+            ? { photoUrl: payload.photoUrl }
+            : {}),
+        });
+      }
+
+      const wasEditing = Boolean(editingUser);
 
       resetForm();
       setShowForm(false);
 
-      setSuccessMessage('Usuário cadastrado com sucesso.');
+      setSuccessMessage(
+        wasEditing
+          ? 'Usuário atualizado com sucesso.'
+          : 'Usuário cadastrado com sucesso.',
+      );
 
       await loadUsers();
     } catch (requestError) {
@@ -400,7 +468,9 @@ export function UsersPage() {
         >
           <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
             <h2 className="text-lg font-semibold text-slate-900">
-              Cadastro de usuário
+              {editingUser
+                ? 'Editar usuário'
+                : 'Cadastro de usuário'}
             </h2>
 
             <p className="mt-1 text-sm text-slate-500">
@@ -464,15 +534,23 @@ export function UsersPage() {
               />
 
               <TextInput
-                label="Senha inicial"
+                label={
+                  editingUser
+                    ? 'Nova senha'
+                    : 'Senha inicial'
+                }
                 type="password"
                 value={form.password}
                 onChange={(value) =>
                   updateForm('password', value)
                 }
-                placeholder="Mínimo de 6 caracteres"
+                placeholder={
+                  editingUser
+                    ? 'Deixe em branco para manter a senha'
+                    : 'Mínimo de 6 caracteres'
+                }
                 autoComplete="new-password"
-                required
+                required={!editingUser}
               />
 
               <TextInput
@@ -482,9 +560,13 @@ export function UsersPage() {
                 onChange={(value) =>
                   updateForm('confirmPassword', value)
                 }
-                placeholder="Digite novamente a senha"
+                placeholder={
+                  editingUser
+                    ? 'Confirme somente se alterar a senha'
+                    : 'Digite novamente a senha'
+                }
                 autoComplete="new-password"
-                required
+                required={!editingUser}
               />
 
               <div className="md:col-span-2">
@@ -523,8 +605,38 @@ export function UsersPage() {
                   <option value="POLICIA">
                     Polícia de fiscalização
                   </option>
+
+                  <option value="SUPERVISOR_POLICIA">
+                    Supervisor da polícia
+                  </option>
                 </select>
               </div>
+
+              {editingUser && (
+                <div className="md:col-span-2">
+                  <label
+                    htmlFor="user-status"
+                    className="text-sm font-medium text-slate-700"
+                  >
+                    Status <span className="text-red-500">*</span>
+                  </label>
+
+                  <select
+                    id="user-status"
+                    value={form.status}
+                    onChange={(event) =>
+                      updateForm('status', event.target.value)
+                    }
+                    disabled={saving}
+                    className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-slate-900 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100"
+                  >
+                    <option value="ACTIVE">Ativo</option>
+                    <option value="PENDING">Pendente</option>
+                    <option value="SUSPENDED">Suspenso</option>
+                    <option value="BLOCKED">Bloqueado</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
 
@@ -549,22 +661,26 @@ export function UsersPage() {
                   Salvando...
                 </>
               ) : (
-                'Salvar usuário'
+                editingUser
+                  ? 'Atualizar usuário'
+                  : 'Salvar usuário'
               )}
             </button>
           </div>
         </form>
       )}
 
-      <UsersTable users={users} />
+      <UsersTable users={users} onEdit={openEditForm} />
     </div>
   );
 }
 
 function UsersTable({
   users,
+  onEdit,
 }: {
   users: User[];
+  onEdit: (user: User) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
@@ -588,6 +704,7 @@ function UsersTable({
               <th className="px-4 py-3">Perfil</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Criado em</th>
+              <th className="px-4 py-3 text-right">Ações</th>
             </tr>
           </thead>
 
@@ -634,13 +751,23 @@ function UsersTable({
                 <td className="px-4 py-3 text-slate-600">
                   {formatDate(user.createdAt)}
                 </td>
+
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    onClick={() => onEdit(user)}
+                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 transition hover:bg-blue-100"
+                  >
+                    Editar dados
+                  </button>
+                </td>
               </tr>
             ))}
 
             {!users.length && (
               <tr>
                 <td
-                  colSpan={6}
+                  colSpan={7}
                   className="px-6 py-12 text-center"
                 >
                   <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-slate-100 text-2xl">

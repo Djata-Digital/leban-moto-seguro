@@ -145,6 +145,9 @@ export function DriversPage() {
   const [showForm, setShowForm] =
     useState(false);
 
+  const [editingDriver, setEditingDriver] =
+    useState<Driver | null>(null);
+
   const [error, setError] =
     useState('');
 
@@ -186,9 +189,10 @@ export function DriversPage() {
 
     return users.filter(
       (user) =>
-        !driverUserIds.has(user.id),
+        !driverUserIds.has(user.id) ||
+        user.id === editingDriver?.userId,
     );
-  }, [drivers, users]);
+  }, [drivers, users, editingDriver]);
 
   async function loadData() {
     setLoading(true);
@@ -248,6 +252,31 @@ export function DriversPage() {
     setProfileFile(null);
     setIdentityFile(null);
     setDrivingLicenseFile(null);
+    setEditingDriver(null);
+  }
+
+  function startEditing(driver: Driver) {
+    setEditingDriver(driver);
+    setForm({
+      userId: driver.userId,
+      birthDate: driver.birthDate
+        ? driver.birthDate.slice(0, 10)
+        : '',
+      identityNumber:
+        driver.identityNumber ?? '',
+      drivingLicenseNumber:
+        driver.drivingLicenseNumber ?? '',
+      nationality: driver.nationality ?? '',
+      country: driver.country ?? '',
+      address: driver.address ?? '',
+    });
+    setProfileFile(null);
+    setIdentityFile(null);
+    setDrivingLicenseFile(null);
+    setError('');
+    setSuccess('');
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function handleProfileFile(
@@ -405,42 +434,51 @@ export function DriversPage() {
           );
       }
 
-      await api.post('/drivers', {
-        userId: form.userId,
-
+      const payload = {
         birthDate:
           form.birthDate || undefined,
 
         identityNumber:
-          form.identityNumber.trim() ||
-          undefined,
+          form.identityNumber.trim(),
 
         drivingLicenseNumber:
-          form.drivingLicenseNumber.trim() ||
-          undefined,
+          form.drivingLicenseNumber.trim(),
 
         nationality:
-          form.nationality.trim() ||
-          undefined,
+          form.nationality.trim(),
 
         country:
-          form.country.trim() ||
-          undefined,
+          form.country.trim(),
 
         address:
-          form.address.trim() ||
-          undefined,
+          form.address.trim(),
 
         photoUrl,
         identityDocumentUrl,
         drivingLicenseDocumentUrl,
-      });
+      };
+
+      if (editingDriver) {
+        await api.patch(
+          `/drivers/${editingDriver.id}`,
+          payload,
+        );
+      } else {
+        await api.post('/drivers', {
+          userId: form.userId,
+          ...payload,
+        });
+      }
+
+      const wasEditing = Boolean(editingDriver);
 
       resetForm();
       setShowForm(false);
 
       setSuccess(
-        'Motorista cadastrado com sucesso.',
+        wasEditing
+          ? 'Motorista atualizado com sucesso.'
+          : 'Motorista cadastrado com sucesso.',
       );
 
       await loadData();
@@ -485,9 +523,13 @@ export function DriversPage() {
         <button
           type="button"
           onClick={() => {
-            setShowForm(
-              (value) => !value,
-            );
+            if (showForm) {
+              resetForm();
+              setShowForm(false);
+            } else {
+              resetForm();
+              setShowForm(true);
+            }
 
             setError('');
             setSuccess('');
@@ -495,7 +537,7 @@ export function DriversPage() {
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           {showForm
-            ? 'Fechar cadastro'
+            ? 'Fechar formulário'
             : 'Novo motorista'}
         </button>
       </div>
@@ -519,13 +561,15 @@ export function DriversPage() {
         >
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
-              Novo motorista
+              {editingDriver
+                ? 'Editar motorista'
+                : 'Novo motorista'}
             </h2>
 
             <p className="text-sm text-slate-500">
-              Os dados principais serão
-              obtidos da conta de usuário
-              selecionada.
+              {editingDriver
+                ? 'Atualize os dados e selecione novos arquivos apenas quando desejar substituí-los.'
+                : 'Os dados principais serão obtidos da conta de usuário selecionada.'}
             </p>
           </div>
 
@@ -545,6 +589,7 @@ export function DriversPage() {
                   })
                 }
                 required
+                disabled={Boolean(editingDriver)}
                 className="mt-1 w-full rounded-lg border px-3 py-2 outline-none focus:border-blue-500"
               >
                 <option value="">
@@ -741,7 +786,9 @@ export function DriversPage() {
             >
               {saving
                 ? 'Salvando...'
-                : 'Salvar motorista'}
+                : editingDriver
+                  ? 'Atualizar motorista'
+                  : 'Salvar motorista'}
             </button>
           </div>
         </form>
@@ -782,6 +829,10 @@ export function DriversPage() {
 
                 <th className="p-4">
                   Criado em
+                </th>
+
+                <th className="p-4">
+                  Ações
                 </th>
               </tr>
             </thead>
@@ -902,13 +953,25 @@ export function DriversPage() {
                       'pt-BR',
                     )}
                   </td>
+
+                  <td className="p-4">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        startEditing(driver)
+                      }
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100"
+                    >
+                      Editar dados
+                    </button>
+                  </td>
                 </tr>
               ))}
 
               {!drivers.length && (
                 <tr>
                   <td
-                    colSpan={8}
+                    colSpan={9}
                     className="p-10 text-center text-slate-500"
                   >
                     Nenhum motorista

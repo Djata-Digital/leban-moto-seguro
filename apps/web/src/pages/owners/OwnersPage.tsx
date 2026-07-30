@@ -112,6 +112,8 @@ export function OwnersPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [editingOwnerId, setEditingOwnerId] =
+    useState<string | null>(null);
 
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -135,9 +137,11 @@ export function OwnersPage() {
     );
 
     return users.filter(
-      (user) => !ownerUserIds.has(user.id),
+      (user) =>
+        !ownerUserIds.has(user.id) ||
+        user.id === form.userId,
     );
-  }, [owners, users]);
+  }, [form.userId, owners, users]);
 
   async function loadData() {
     setLoading(true);
@@ -181,6 +185,32 @@ export function OwnersPage() {
     setForm(initialForm);
     setIdentityFile(null);
     setPurchaseFile(null);
+    setEditingOwnerId(null);
+  }
+
+  function startEdit(owner: Owner) {
+    setForm({
+      userId: owner.userId,
+      birthDate: owner.birthDate
+        ? owner.birthDate.slice(0, 10)
+        : '',
+      identityNumber: owner.identityNumber ?? '',
+      nationality: owner.nationality ?? '',
+      country: owner.country ?? '',
+      address: owner.address ?? '',
+    });
+
+    setIdentityFile(null);
+    setPurchaseFile(null);
+    setEditingOwnerId(owner.id);
+    setShowForm(true);
+    setError('');
+    setSuccess('');
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
   }
 
   function handleIdentityFile(
@@ -256,24 +286,37 @@ export function OwnersPage() {
         );
       }
 
-      await api.post('/owners', {
-        userId: form.userId,
+      const payload = {
         birthDate: form.birthDate || undefined,
-        identityNumber:
-          form.identityNumber.trim() || undefined,
-        nationality:
-          form.nationality.trim() || undefined,
-        country: form.country.trim() || undefined,
-        address: form.address.trim() || undefined,
+        identityNumber: form.identityNumber.trim(),
+        nationality: form.nationality.trim(),
+        country: form.country.trim(),
+        address: form.address.trim(),
         identityDocumentUrl,
         purchaseDocumentUrl,
-      });
+      };
+
+      if (editingOwnerId) {
+        await api.patch(
+          `/owners/${editingOwnerId}`,
+          payload,
+        );
+      } else {
+        await api.post('/owners', {
+          userId: form.userId,
+          ...payload,
+        });
+      }
+
+      const wasEditing = Boolean(editingOwnerId);
 
       resetForm();
       setShowForm(false);
 
       setSuccess(
-        'Proprietário cadastrado com sucesso.',
+        wasEditing
+          ? 'Proprietário atualizado com sucesso.'
+          : 'Proprietário cadastrado com sucesso.',
       );
 
       await loadData();
@@ -316,14 +359,23 @@ export function OwnersPage() {
         <button
           type="button"
           onClick={() => {
-            setShowForm((value) => !value);
+            if (showForm) {
+              resetForm();
+              setShowForm(false);
+            } else {
+              resetForm();
+              setShowForm(true);
+            }
+
             setError('');
             setSuccess('');
           }}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         >
           {showForm
-            ? 'Fechar cadastro'
+            ? editingOwnerId
+              ? 'Fechar edição'
+              : 'Fechar cadastro'
             : 'Novo proprietário'}
         </button>
       </div>
@@ -347,12 +399,15 @@ export function OwnersPage() {
         >
           <div>
             <h2 className="text-lg font-semibold text-slate-900">
-              Novo proprietário
+              {editingOwnerId
+                ? 'Editar proprietário'
+                : 'Novo proprietário'}
             </h2>
 
             <p className="text-sm text-slate-500">
-              Os dados pessoais principais serão obtidos da conta
-              de usuário selecionada.
+              {editingOwnerId
+                ? 'Atualize os dados cadastrais e, se necessário, substitua os documentos.'
+                : 'Os dados pessoais principais serão obtidos da conta de usuário selecionada.'}
             </p>
           </div>
 
@@ -371,6 +426,7 @@ export function OwnersPage() {
                   })
                 }
                 required
+                disabled={Boolean(editingOwnerId)}
                 className="mt-1 w-full rounded-lg border px-3 py-2 outline-none focus:border-blue-500"
               >
                 <option value="">
@@ -529,8 +585,12 @@ export function OwnersPage() {
               className="rounded-lg bg-green-600 px-5 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving
-                ? 'Salvando...'
-                : 'Salvar proprietário'}
+                ? editingOwnerId
+                  ? 'Atualizando...'
+                  : 'Salvando...'
+                : editingOwnerId
+                  ? 'Atualizar proprietário'
+                  : 'Salvar proprietário'}
             </button>
           </div>
         </form>
@@ -548,6 +608,7 @@ export function OwnersPage() {
                 <th className="p-4">Documentos</th>
                 <th className="p-4">Motas</th>
                 <th className="p-4">Criado em</th>
+                <th className="p-4 text-right">Ações</th>
               </tr>
             </thead>
 
@@ -630,13 +691,23 @@ export function OwnersPage() {
                       owner.createdAt,
                     ).toLocaleDateString('pt-BR')}
                   </td>
+
+                  <td className="p-4 text-right">
+                    <button
+                      type="button"
+                      onClick={() => startEdit(owner)}
+                      className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                    >
+                      Editar dados
+                    </button>
+                  </td>
                 </tr>
               ))}
 
               {!owners.length && (
                 <tr>
                   <td
-                    colSpan={7}
+                    colSpan={8}
                     className="p-10 text-center text-slate-500"
                   >
                     Nenhum proprietário cadastrado.

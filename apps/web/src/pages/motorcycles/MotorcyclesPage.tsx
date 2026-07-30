@@ -68,6 +68,7 @@ type Motorcycle = {
   photoUrl?: string;
   type: string;
   status: string;
+  ownerId?: string;
 
   owner?: {
     fullName: string;
@@ -153,6 +154,11 @@ export function MotorcyclesPage() {
     showForm,
     setShowForm,
   ] = useState(false);
+
+  const [
+    editingMotorcycleId,
+    setEditingMotorcycleId,
+  ] = useState<string | null>(null);
 
   const [
     errorMessage,
@@ -328,7 +334,7 @@ export function MotorcyclesPage() {
   ) {
     event.preventDefault();
 
-    if (!photoFile) {
+    if (!editingMotorcycleId && !photoFile) {
       setErrorMessage(
         'Selecione uma foto da mota.',
       );
@@ -336,7 +342,7 @@ export function MotorcyclesPage() {
       return;
     }
 
-    if (!documentFile) {
+    if (!editingMotorcycleId && !documentFile) {
       setErrorMessage(
         'Selecione o documento da mota.',
       );
@@ -348,59 +354,81 @@ export function MotorcyclesPage() {
     setErrorMessage('');
 
     try {
+      const payload = {
+        ownerId: form.ownerId,
+        type: form.type,
+        brand: form.brand,
+        model:
+          form.model.trim() ||
+          undefined,
+        color:
+          form.color.trim() ||
+          undefined,
+        chassisNumber:
+          form.chassisNumber,
+        engineNumber:
+          form.engineNumber.trim() ||
+          undefined,
+        plateNumber:
+          form.plateNumber,
+      };
+
       const motorcycleResponse =
-        await api.post('/motorcycles', {
-          ...form,
-
-          model:
-            form.model.trim() ||
-            undefined,
-
-          color:
-            form.color.trim() ||
-            undefined,
-
-          engineNumber:
-            form.engineNumber.trim() ||
-            undefined,
-        });
+        editingMotorcycleId
+          ? await api.patch(
+              `/motorcycles/${editingMotorcycleId}`,
+              payload,
+            )
+          : await api.post(
+              '/motorcycles',
+              payload,
+            );
 
       const motorcycle =
         motorcycleResponse.data.data ??
         motorcycleResponse.data;
 
       const motorcycleId =
+        editingMotorcycleId ??
         motorcycle?.id;
 
       if (!motorcycleId) {
         throw new Error(
-          'A API não devolveu o ID da mota cadastrada.',
+          'A API não devolveu o ID da mota.',
         );
       }
 
-      const filesFormData =
-        new FormData();
+      if (photoFile || documentFile) {
+        const filesFormData =
+          new FormData();
 
-      filesFormData.append(
-        'photo',
-        photoFile,
+        if (photoFile) {
+          filesFormData.append(
+            'photo',
+            photoFile,
+          );
+        }
+
+        if (documentFile) {
+          filesFormData.append(
+            'document',
+            documentFile,
+          );
+        }
+
+        await api.post(
+          `/motorcycles/${motorcycleId}/files`,
+          filesFormData,
+        );
+      }
+
+      setSuccessMessage(
+        editingMotorcycleId
+          ? 'Mota atualizada com sucesso.'
+          : 'Mota cadastrada com sucesso.',
       );
 
-      filesFormData.append(
-        'document',
-        documentFile,
-      );
-
-      await api.post(
-        `/motorcycles/${motorcycleId}/files`,
-        filesFormData,
-      );
-
-      setForm(initialForm);
-      setPhotoFile(null);
-      setDocumentFile(null);
-      setShowForm(false);
-
+      closeForm();
       await loadData();
     } catch (error: any) {
       console.error(error);
@@ -415,7 +443,9 @@ export function MotorcyclesPage() {
 
       setErrorMessage(
         formattedMessage ||
-          'Não foi possível cadastrar a mota.',
+          (editingMotorcycleId
+            ? 'Não foi possível atualizar a mota.'
+            : 'Não foi possível cadastrar a mota.'),
       );
     } finally {
       setSubmitting(false);
@@ -511,8 +541,43 @@ export function MotorcyclesPage() {
     }
   }
 
+  function openEditForm(
+    motorcycle: Motorcycle,
+  ) {
+    setEditingMotorcycleId(
+      motorcycle.id,
+    );
+
+    setForm({
+      ownerId:
+        motorcycle.ownerId ?? '',
+      type: motorcycle.type,
+      brand: motorcycle.brand ?? '',
+      model: motorcycle.model ?? '',
+      color: motorcycle.color ?? '',
+      chassisNumber:
+        motorcycle.chassisNumber ?? '',
+      engineNumber:
+        motorcycle.engineNumber ?? '',
+      plateNumber:
+        motorcycle.plateNumber ?? '',
+    });
+
+    setPhotoFile(null);
+    setDocumentFile(null);
+    setErrorMessage('');
+    setSuccessMessage('');
+    setShowForm(true);
+
+    window.scrollTo({
+      top: 0,
+      behavior: 'smooth',
+    });
+  }
+
   function closeForm() {
     setShowForm(false);
+    setEditingMotorcycleId(null);
     setForm(initialForm);
     setPhotoFile(null);
     setDocumentFile(null);
@@ -547,6 +612,10 @@ export function MotorcyclesPage() {
             if (showForm) {
               closeForm();
             } else {
+              setEditingMotorcycleId(null);
+              setForm(initialForm);
+              setPhotoFile(null);
+              setDocumentFile(null);
               setShowForm(true);
             }
           }}
@@ -575,6 +644,20 @@ export function MotorcyclesPage() {
           onSubmit={handleSubmit}
           className="bg-white border rounded-xl shadow-sm p-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
         >
+          <div className="md:col-span-2 xl:col-span-3">
+            <h2 className="text-xl font-bold text-slate-900">
+              {editingMotorcycleId
+                ? 'Editar mota'
+                : 'Cadastrar nova mota'}
+            </h2>
+
+            {editingMotorcycleId && (
+              <p className="mt-1 text-sm text-slate-500">
+                Foto e documento são opcionais. Selecione novos arquivos somente para substituí-los.
+              </p>
+            )}
+          </div>
+
           <div>
             <label className="text-sm font-medium">
               Proprietário
@@ -718,7 +801,7 @@ export function MotorcyclesPage() {
               type="file"
               accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
               onChange={handlePhotoChange}
-              required
+              required={!editingMotorcycleId}
               disabled={submitting}
               className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-blue-50 file:px-3 file:py-2 file:text-blue-700 hover:file:bg-blue-100"
             />
@@ -740,7 +823,7 @@ export function MotorcyclesPage() {
               onChange={
                 handleDocumentChange
               }
-              required
+              required={!editingMotorcycleId}
               disabled={submitting}
               className="mt-1 block w-full rounded-lg border px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-purple-50 file:px-3 file:py-2 file:text-purple-700 hover:file:bg-purple-100"
             />
@@ -790,7 +873,9 @@ export function MotorcyclesPage() {
             >
               {submitting
                 ? 'Salvando...'
-                : 'Salvar mota'}
+                : editingMotorcycleId
+                  ? 'Atualizar mota'
+                  : 'Salvar mota'}
             </button>
           </div>
         </form>
@@ -994,6 +1079,14 @@ export function MotorcyclesPage() {
 
                 <td className="p-3">
                   <div className="flex min-w-[180px] flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openEditForm(moto)}
+                      className="text-left font-medium text-green-700 hover:underline"
+                    >
+                      Editar dados
+                    </button>
+
                     <button
                       type="button"
                       onClick={() => openDriverLink(moto)}
