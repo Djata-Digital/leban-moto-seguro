@@ -7,6 +7,8 @@ import {
 import { DocumentType } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
+
 import { CreateOwnerDto } from './dto/create-owner.dto';
 import { UpdateOwnerDto } from './dto/update-owner.dto';
 
@@ -14,6 +16,7 @@ import { UpdateOwnerDto } from './dto/update-owner.dto';
 export class OwnersService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   private readonly userSelect = {
@@ -32,6 +35,7 @@ export class OwnersService {
       where: {
         id: dto.userId,
       },
+
       select: {
         id: true,
         fullName: true,
@@ -71,8 +75,7 @@ export class OwnersService {
 
               /*
                * Estes campos continuam temporariamente porque
-               * ainda existem como obrigatórios/opcionais no
-               * seu model Owner atual.
+               * ainda existem no model Owner atual.
                */
               fullName: user.fullName,
               phone: user.phone,
@@ -84,16 +87,20 @@ export class OwnersService {
                 : undefined,
 
               identityNumber:
-                dto.identityNumber?.trim() || undefined,
+                dto.identityNumber?.trim() ||
+                undefined,
 
               nationality:
-                dto.nationality?.trim() || undefined,
+                dto.nationality?.trim() ||
+                undefined,
 
               country:
-                dto.country?.trim() || undefined,
+                dto.country?.trim() ||
+                undefined,
 
               address:
-                dto.address?.trim() || undefined,
+                dto.address?.trim() ||
+                undefined,
             },
           });
 
@@ -104,28 +111,37 @@ export class OwnersService {
           verified: boolean;
         }> = [];
 
-        if (dto.identityDocumentUrl?.trim()) {
+        if (
+          dto.identityDocumentUrl?.trim()
+        ) {
           documents.push({
             ownerId: createdOwner.id,
             type: DocumentType.IDENTITY,
-            fileUrl: dto.identityDocumentUrl.trim(),
+            fileUrl:
+              dto.identityDocumentUrl.trim(),
             verified: true,
           });
         }
 
-        if (dto.purchaseDocumentUrl?.trim()) {
+        if (
+          dto.purchaseDocumentUrl?.trim()
+        ) {
           documents.push({
             ownerId: createdOwner.id,
-            type: DocumentType.PURCHASE_PROOF,
-            fileUrl: dto.purchaseDocumentUrl.trim(),
+            type:
+              DocumentType.PURCHASE_PROOF,
+            fileUrl:
+              dto.purchaseDocumentUrl.trim(),
             verified: true,
           });
         }
 
         if (documents.length > 0) {
-          await transaction.ownerDocument.createMany({
-            data: documents,
-          });
+          await transaction.ownerDocument.createMany(
+            {
+              data: documents,
+            },
+          );
         }
 
         return createdOwner;
@@ -194,59 +210,94 @@ export class OwnersService {
   ) {
     await this.findById(id);
 
-    await this.prisma.$transaction(
-      async (transaction) => {
-        await transaction.owner.update({
-          where: {
-            id,
-          },
+    const oldFileUrls =
+      await this.prisma.$transaction(
+        async (transaction) => {
+          const filesToDelete: string[] = [];
 
-          data: {
-            birthDate:
-              dto.birthDate !== undefined
-                ? new Date(dto.birthDate)
-                : undefined,
+          await transaction.owner.update({
+            where: {
+              id,
+            },
 
-            identityNumber:
-              dto.identityNumber !== undefined
-                ? dto.identityNumber.trim() || null
-                : undefined,
+            data: {
+              birthDate:
+                dto.birthDate !== undefined
+                  ? dto.birthDate
+                    ? new Date(dto.birthDate)
+                    : null
+                  : undefined,
 
-            nationality:
-              dto.nationality !== undefined
-                ? dto.nationality.trim() || null
-                : undefined,
+              identityNumber:
+                dto.identityNumber !==
+                undefined
+                  ? dto.identityNumber.trim() ||
+                    null
+                  : undefined,
 
-            country:
-              dto.country !== undefined
-                ? dto.country.trim() || null
-                : undefined,
+              nationality:
+                dto.nationality !== undefined
+                  ? dto.nationality.trim() ||
+                    null
+                  : undefined,
 
-            address:
-              dto.address !== undefined
-                ? dto.address.trim() || null
-                : undefined,
-          },
-        });
+              country:
+                dto.country !== undefined
+                  ? dto.country.trim() || null
+                  : undefined,
 
-        if (dto.identityDocumentUrl?.trim()) {
-          await this.saveOrReplaceDocument(
-            transaction,
-            id,
-            DocumentType.IDENTITY,
-            dto.identityDocumentUrl.trim(),
-          );
-        }
+              address:
+                dto.address !== undefined
+                  ? dto.address.trim() || null
+                  : undefined,
+            },
+          });
 
-        if (dto.purchaseDocumentUrl?.trim()) {
-          await this.saveOrReplaceDocument(
-            transaction,
-            id,
-            DocumentType.PURCHASE_PROOF,
-            dto.purchaseDocumentUrl.trim(),
-          );
-        }
-      },
+          if (
+            dto.identityDocumentUrl?.trim()
+          ) {
+            const oldUrl =
+              await this.saveOrReplaceDocument(
+                transaction,
+                id,
+                DocumentType.IDENTITY,
+                dto.identityDocumentUrl.trim(),
+              );
+
+            if (oldUrl) {
+              filesToDelete.push(oldUrl);
+            }
+          }
+
+          if (
+            dto.purchaseDocumentUrl?.trim()
+          ) {
+            const oldUrl =
+              await this.saveOrReplaceDocument(
+                transaction,
+                id,
+                DocumentType.PURCHASE_PROOF,
+                dto.purchaseDocumentUrl.trim(),
+              );
+
+            if (oldUrl) {
+              filesToDelete.push(oldUrl);
+            }
+          }
+
+          return filesToDelete;
+        },
+      );
+
+    /*
+     * A exclusão na Cloudinary acontece somente
+     * depois que a transação do banco foi concluída.
+     *
+     * Assim, se o banco falhar, o arquivo antigo
+     * não será apagado.
+     */
+    await this.deleteFilesSafely(
+      oldFileUrls,
     );
 
     return this.findById(id);
@@ -257,18 +308,20 @@ export class OwnersService {
     ownerId: string,
     type: DocumentType,
     fileUrl: string,
-  ) {
+  ): Promise<string | null> {
     const existingDocument =
-      await transaction.ownerDocument.findFirst({
-        where: {
-          ownerId,
-          type,
-        },
+      await transaction.ownerDocument.findFirst(
+        {
+          where: {
+            ownerId,
+            type,
+          },
 
-        orderBy: {
-          createdAt: 'desc',
+          orderBy: {
+            createdAt: 'desc',
+          },
         },
-      });
+      );
 
     if (existingDocument) {
       await transaction.ownerDocument.update({
@@ -282,7 +335,18 @@ export class OwnersService {
         },
       });
 
-      return;
+      /*
+       * Se a URL recebida for igual à atual,
+       * não devemos excluir o mesmo arquivo.
+       */
+      if (
+        existingDocument.fileUrl ===
+        fileUrl
+      ) {
+        return null;
+      }
+
+      return existingDocument.fileUrl;
     }
 
     await transaction.ownerDocument.create({
@@ -293,24 +357,40 @@ export class OwnersService {
         verified: true,
       },
     });
+
+    return null;
   }
 
   async remove(id: string) {
     const owner = await this.findById(id);
 
-    if (owner.motorcycles.length > 0) {
+    if (
+      owner.motorcycles.length > 0
+    ) {
       throw new BadRequestException(
         'Não é possível excluir este proprietário porque ele possui motas cadastradas.',
       );
     }
 
+    const documentUrls =
+      owner.documents
+        .map((document) =>
+          document.fileUrl?.trim(),
+        )
+        .filter(
+          (url): url is string =>
+            Boolean(url),
+        );
+
     await this.prisma.$transaction(
       async (transaction) => {
-        await transaction.ownerDocument.deleteMany({
-          where: {
-            ownerId: id,
+        await transaction.ownerDocument.deleteMany(
+          {
+            where: {
+              ownerId: id,
+            },
           },
-        });
+        );
 
         await transaction.owner.delete({
           where: {
@@ -320,8 +400,68 @@ export class OwnersService {
       },
     );
 
+    await this.deleteFilesSafely(
+      documentUrls,
+    );
+
     return {
-      message: 'Proprietário excluído com sucesso',
+      message:
+        'Proprietário excluído com sucesso',
     };
+  }
+
+  private async deleteFilesSafely(
+    urls: string[],
+  ): Promise<void> {
+    for (const url of urls) {
+      try {
+        const publicId =
+          this.uploadsService.extractPublicId(
+            url,
+          );
+
+        /*
+         * URLs locais antigas ou URLs externas
+         * não possuem public_id da Cloudinary.
+         */
+        if (!publicId) {
+          continue;
+        }
+
+        const resourceType =
+          this.getCloudinaryResourceType(
+            url,
+          );
+
+        await this.uploadsService.deleteFile(
+          publicId,
+          resourceType,
+        );
+      } catch (error) {
+        /*
+         * Uma falha ao limpar o arquivo remoto
+         * não deve desfazer uma atualização que
+         * já foi salva corretamente no banco.
+         */
+        console.error(
+          `Não foi possível excluir o arquivo antigo da Cloudinary: ${url}`,
+          error,
+        );
+      }
+    }
+  }
+
+  private getCloudinaryResourceType(
+    url: string,
+  ): 'image' | 'video' | 'raw' {
+    if (url.includes('/video/upload/')) {
+      return 'video';
+    }
+
+    if (url.includes('/raw/upload/')) {
+      return 'raw';
+    }
+
+    return 'image';
   }
 }

@@ -8,9 +8,7 @@ import {
 } from '@nestjs/common';
 
 import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
-import { randomUUID } from 'crypto';
+import { memoryStorage } from 'multer';
 
 import { UploadsService } from './uploads.service';
 
@@ -20,10 +18,7 @@ type UploadConfiguration = {
   maxSizeMb: number;
 };
 
-const uploadConfigurations: Record<
-  string,
-  UploadConfiguration
-> = {
+const uploadConfigurations: Record<string, UploadConfiguration> = {
   'users/profile': {
     folder: 'users/profiles',
     onlyImages: true,
@@ -90,9 +85,7 @@ function getConfiguration(
   const configuration = uploadConfigurations[key];
 
   if (!configuration) {
-    throw new BadRequestException(
-      'Tipo de upload inválido.',
-    );
+    throw new BadRequestException('Tipo de upload inválido.');
   }
 
   return configuration;
@@ -103,7 +96,7 @@ function validateFileType(
     mimetype: string;
   },
   onlyImages: boolean,
-) {
+): void {
   const allowedImageTypes = [
     'image/jpeg',
     'image/jpg',
@@ -129,18 +122,6 @@ function validateFileType(
   }
 }
 
-function generateFileName(
-  file: {
-    originalname: string;
-  },
-) {
-  const extension = extname(
-    file.originalname,
-  ).toLowerCase();
-
-  return `${randomUUID()}${extension}`;
-}
-
 @Controller('uploads')
 export class UploadsController {
   constructor(
@@ -148,7 +129,7 @@ export class UploadsController {
   ) {}
 
   /*
-   * Novos uploads organizados.
+   * Uploads organizados.
    *
    * Exemplos:
    * POST /uploads/users/profile
@@ -158,50 +139,7 @@ export class UploadsController {
   @Post(':category/:type')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (
-          req,
-          file,
-          callback,
-        ) => {
-          try {
-            const category = String(
-              req.params.category,
-            );
-
-            const type = String(
-              req.params.type,
-            );
-
-            const configuration =
-              getConfiguration(
-                category,
-                type,
-              );
-
-            callback(
-              null,
-              `uploads/${configuration.folder}`,
-            );
-          } catch (error) {
-            callback(
-              error as Error,
-              '',
-            );
-          }
-        },
-
-        filename: (
-          req,
-          file,
-          callback,
-        ) => {
-          callback(
-            null,
-            generateFileName(file),
-          );
-        },
-      }),
+      storage: memoryStorage(),
 
       limits: {
         fileSize: 10 * 1024 * 1024,
@@ -242,7 +180,7 @@ export class UploadsController {
       },
     }),
   )
-  uploadStructuredFile(
+  async uploadStructuredFile(
     @Param('category')
     category: string,
 
@@ -275,69 +213,46 @@ export class UploadsController {
       );
     }
 
+    const result =
+      await this.uploadsService.uploadFile(
+        file,
+        configuration.folder,
+      );
+
     return {
       originalName: file.originalname,
-      filename: file.filename,
+
+      /*
+       * Mantido para compatibilidade com o frontend.
+       * Agora representa o public_id da Cloudinary.
+       */
+      filename: result.publicId,
+
       mimetype: file.mimetype,
       size: file.size,
       category,
       type,
       folder: configuration.folder,
 
-      url: this.uploadsService.buildFileUrl(
-        configuration.folder,
-        file.filename,
-      ),
+      url: result.url,
+      secureUrl: result.url,
+      publicId: result.publicId,
+      resourceType: result.resourceType,
+      format: result.format,
     };
   }
 
   /*
    * Endpoint antigo mantido para não quebrar
-   * funcionalidades já existentes.
+   * funcionalidades existentes.
+   *
+   * Exemplo:
+   * POST /uploads/documents
    */
   @Post(':folder')
   @UseInterceptors(
     FileInterceptor('file', {
-      storage: diskStorage({
-        destination: (
-          req,
-          file,
-          callback,
-        ) => {
-          const folder = String(
-            req.params.folder,
-          );
-
-          if (
-            !legacyFolders.includes(
-              folder,
-            )
-          ) {
-            return callback(
-              new BadRequestException(
-                'Pasta de upload inválida.',
-              ),
-              '',
-            );
-          }
-
-          callback(
-            null,
-            `uploads/${folder}`,
-          );
-        },
-
-        filename: (
-          req,
-          file,
-          callback,
-        ) => {
-          callback(
-            null,
-            generateFileName(file),
-          );
-        },
-      }),
+      storage: memoryStorage(),
 
       limits: {
         fileSize: 10 * 1024 * 1024,
@@ -349,6 +264,20 @@ export class UploadsController {
         callback,
       ) => {
         try {
+          const folder = String(
+            req.params.folder,
+          );
+
+          if (
+            !legacyFolders.includes(
+              folder,
+            )
+          ) {
+            throw new BadRequestException(
+              'Pasta de upload inválida.',
+            );
+          }
+
           validateFileType(
             file,
             false,
@@ -364,30 +293,52 @@ export class UploadsController {
       },
     }),
   )
-  uploadLegacyFile(
+  async uploadLegacyFile(
     @Param('folder')
     folder: string,
 
     @UploadedFile()
     file: Express.Multer.File,
   ) {
+    if (
+      !legacyFolders.includes(
+        folder,
+      )
+    ) {
+      throw new BadRequestException(
+        'Pasta de upload inválida.',
+      );
+    }
+
     if (!file) {
       throw new BadRequestException(
         'Nenhum arquivo enviado.',
       );
     }
 
+    const result =
+      await this.uploadsService.uploadFile(
+        file,
+        folder,
+      );
+
     return {
       originalName: file.originalname,
-      filename: file.filename,
+
+      /*
+       * Mantido para compatibilidade.
+       */
+      filename: result.publicId,
+
       mimetype: file.mimetype,
       size: file.size,
       folder,
 
-      url: this.uploadsService.buildFileUrl(
-        folder,
-        file.filename,
-      ),
+      url: result.url,
+      secureUrl: result.url,
+      publicId: result.publicId,
+      resourceType: result.resourceType,
+      format: result.format,
     };
   }
 }

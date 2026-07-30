@@ -5,16 +5,19 @@ import {
 } from '@nestjs/common';
 
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
+
 import { CreateMotorcycleDto } from './dto/create-motorcycle.dto';
 import { UpdateMotorcycleDto } from './dto/update-motorcycle.dto';
-import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class MotorcyclesService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   /**
@@ -165,19 +168,30 @@ export class MotorcyclesService {
               nationalCode,
               qrToken: randomUUID(),
 
-              brand: this.cleanRequiredValue(dto.brand),
+              brand:
+                this.cleanRequiredValue(
+                  dto.brand,
+                ),
 
-              model: this.cleanOptionalValue(dto.model),
+              model:
+                this.cleanOptionalValue(
+                  dto.model,
+                ),
 
-              color: this.cleanOptionalValue(dto.color),
+              color:
+                this.cleanOptionalValue(
+                  dto.color,
+                ),
 
               chassisNumber,
               engineNumber,
               plateNumber,
 
-              photoUrl: this.cleanOptionalValue(dto.photoUrl),
+              photoUrl:
+                this.cleanOptionalValue(
+                  dto.photoUrl,
+                ),
             },
-            
 
             include: {
               owner: {
@@ -398,7 +412,9 @@ export class MotorcyclesService {
     return motorcycle;
   }
 
-  async findByPlate(plateNumber: string) {
+  async findByPlate(
+    plateNumber: string,
+  ) {
     const normalizedPlate =
       this.normalizePlate(plateNumber);
 
@@ -582,16 +598,33 @@ export class MotorcyclesService {
     }
 
     /*
-     * Permite que motos antigas, criadas antes desta atualização,
+     * Permite que motas antigas, criadas antes desta atualização,
      * recebam seu código nacional ao serem editadas.
      */
     const nationalCode =
       currentMotorcycle.nationalCode ??
       (await this.generateNationalCode());
 
+    const normalizedPhotoUrl =
+      dto.photoUrl !== undefined
+        ? dto.photoUrl.trim() || null
+        : undefined;
+
+    /*
+     * A foto anterior somente deve ser removida quando
+     * o campo photoUrl realmente for alterado.
+     */
+    const oldPhotoUrl =
+      normalizedPhotoUrl !== undefined &&
+      currentMotorcycle.photoUrl &&
+      currentMotorcycle.photoUrl !==
+        normalizedPhotoUrl
+        ? currentMotorcycle.photoUrl
+        : null;
+
     try {
-      return await this.prisma.motorcycle.update(
-        {
+      const updatedMotorcycle =
+        await this.prisma.motorcycle.update({
           where: {
             id,
           },
@@ -624,10 +657,7 @@ export class MotorcyclesService {
             engineNumber,
             plateNumber,
 
-            photoUrl:
-              dto.photoUrl !== undefined
-                ? dto.photoUrl.trim() || null
-                : undefined,
+            photoUrl: normalizedPhotoUrl,
           },
 
           include: {
@@ -672,8 +702,19 @@ export class MotorcyclesService {
             gpsDevices: true,
             theftReports: true,
           },
-        },
-      );
+        });
+
+      /*
+       * A foto antiga é excluída somente depois que
+       * a atualização do banco foi concluída.
+       */
+      if (oldPhotoUrl) {
+        await this.deleteFileSafely(
+          oldPhotoUrl,
+        );
+      }
+
+      return updatedMotorcycle;
     } catch (error) {
       if (
         error instanceof
@@ -828,7 +869,22 @@ export class MotorcyclesService {
   }
 
   async remove(id: string) {
-    await this.findById(id);
+    const motorcycle =
+      await this.findById(id);
+
+    /*
+     * Guardamos as URLs antes da exclusão no banco.
+     */
+    const filesToDelete = [
+      motorcycle.photoUrl,
+      ...motorcycle.documents.map(
+        (document) =>
+          document.fileUrl,
+      ),
+    ].filter(
+      (url): url is string =>
+        Boolean(url?.trim()),
+    );
 
     try {
       await this.prisma.motorcycle.delete({
@@ -850,8 +906,88 @@ export class MotorcyclesService {
       throw error;
     }
 
+    /*
+     * A limpeza da Cloudinary só acontece depois
+     * que a exclusão no banco foi confirmada.
+     */
+    await this.deleteFilesSafely(
+      filesToDelete,
+    );
+
     return {
       message: 'Mota excluída com sucesso',
     };
+  }
+
+  private async deleteFilesSafely(
+    urls: string[],
+  ): Promise<void> {
+    const uniqueUrls = [
+      ...new Set(
+        urls
+          .map((url) => url.trim())
+          .filter(Boolean),
+      ),
+    ];
+
+    for (const url of uniqueUrls) {
+      await this.deleteFileSafely(url);
+    }
+  }
+
+  private async deleteFileSafely(
+    url: string,
+  ): Promise<void> {
+    try {
+      const publicId =
+        this.uploadsService.extractPublicId(
+          url,
+        );
+
+      /*
+       * URLs locais antigas e URLs externas não
+       * reconhecidas pela Cloudinary são ignoradas.
+       */
+      if (!publicId) {
+        return;
+      }
+
+      const resourceType =
+        this.getCloudinaryResourceType(
+          url,
+        );
+
+      await this.uploadsService.deleteFile(
+        publicId,
+        resourceType,
+      );
+    } catch (error) {
+      /*
+       * Uma falha na limpeza da Cloudinary não
+       * deve desfazer uma operação concluída no banco.
+       */
+      console.error(
+        `Não foi possível excluir o arquivo da Cloudinary: ${url}`,
+        error,
+      );
+    }
+  }
+
+  private getCloudinaryResourceType(
+    url: string,
+  ): 'image' | 'video' | 'raw' {
+    if (
+      url.includes('/video/upload/')
+    ) {
+      return 'video';
+    }
+
+    if (
+      url.includes('/raw/upload/')
+    ) {
+      return 'raw';
+    }
+
+    return 'image';
   }
 }

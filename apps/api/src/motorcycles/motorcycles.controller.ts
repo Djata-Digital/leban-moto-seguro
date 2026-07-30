@@ -11,20 +11,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 
-import {
-  FileFieldsInterceptor,
-} from '@nestjs/platform-express';
-
-import { diskStorage } from 'multer';
-import {
-  extname,
-  join,
-} from 'node:path';
-import {
-  existsSync,
-  mkdirSync,
-} from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { FileFieldsInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 
 import { CreateMotorcycleDto } from './dto/create-motorcycle.dto';
 import { UpdateMotorcycleDto } from './dto/update-motorcycle.dto';
@@ -35,34 +23,6 @@ type MotorcycleUploadFiles = {
   photo?: Express.Multer.File[];
   document?: Express.Multer.File[];
 };
-
-function ensureUploadDirectory(
-  folder: 'photos' | 'documents',
-) {
-  const uploadPath = join(
-    process.cwd(),
-    'uploads',
-    'motorcycles',
-    folder,
-  );
-
-  if (!existsSync(uploadPath)) {
-    mkdirSync(uploadPath, {
-      recursive: true,
-    });
-  }
-
-  return uploadPath;
-}
-
-function createSafeFilename(
-  file: Express.Multer.File,
-) {
-  const extension =
-    extname(file.originalname).toLowerCase();
-
-  return `${Date.now()}-${randomUUID()}${extension}`;
-}
 
 @Controller('motorcycles')
 export class MotorcyclesController {
@@ -91,34 +51,11 @@ export class MotorcyclesController {
         },
       ],
       {
-        storage: diskStorage({
-          destination: (
-            request,
-            file,
-            callback,
-          ) => {
-            const folder =
-              file.fieldname === 'photo'
-                ? 'photos'
-                : 'documents';
-
-            callback(
-              null,
-              ensureUploadDirectory(folder),
-            );
-          },
-
-          filename: (
-            request,
-            file,
-            callback,
-          ) => {
-            callback(
-              null,
-              createSafeFilename(file),
-            );
-          },
-        }),
+        /*
+         * Os arquivos permanecem temporariamente
+         * na memória e são enviados à Cloudinary.
+         */
+        storage: memoryStorage(),
 
         limits: {
           fileSize: 10 * 1024 * 1024,

@@ -28,6 +28,7 @@ import { DispatchMessagesModule } from './dispatch-messages/dispatch-messages.mo
 import { RecoveryEvidencesModule } from './recovery-evidences/recovery-evidences.module';
 import { RecoveryReportsModule } from './recovery-reports/recovery-reports.module';
 import { OwnerPortalModule } from './owner-portal/owner-portal.module';
+import { CloudinaryModule } from './cloudinary/cloudinary.module';
 
 @Module({
   imports: [
@@ -62,6 +63,7 @@ import { OwnerPortalModule } from './owner-portal/owner-portal.module';
     RecoveryEvidencesModule,
     RecoveryReportsModule,
     OwnerPortalModule,
+    CloudinaryModule,
   ],
 })
 export class AppModule {}

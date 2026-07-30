@@ -10,6 +10,8 @@ import {
 } from '@prisma/client';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
+
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { UpdateDriverDto } from './dto/update-driver.dto';
 
@@ -17,6 +19,7 @@ import { UpdateDriverDto } from './dto/update-driver.dto';
 export class DriversService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   private readonly userSelect = {
@@ -31,20 +34,22 @@ export class DriversService {
   };
 
   async create(dto: CreateDriverDto) {
-    const user = await this.prisma.user.findUnique({
-      where: {
-        id: dto.userId,
-      },
-      select: {
-        id: true,
-        fullName: true,
-        phone: true,
-        email: true,
-        photoUrl: true,
-        role: true,
-        status: true,
-      },
-    });
+    const user =
+      await this.prisma.user.findUnique({
+        where: {
+          id: dto.userId,
+        },
+
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          email: true,
+          photoUrl: true,
+          role: true,
+          status: true,
+        },
+      });
 
     if (!user) {
       throw new NotFoundException(
@@ -68,6 +73,9 @@ export class DriversService {
     const driver =
       await this.prisma.$transaction(
         async (transaction) => {
+          const receivedPhotoUrl =
+            dto.photoUrl?.trim() || null;
+
           const createdDriver =
             await transaction.driver.create({
               data: {
@@ -80,13 +88,15 @@ export class DriversService {
                 fullName: user.fullName,
                 phone: user.phone,
                 email: user.email,
+
                 photoUrl:
-                  dto.photoUrl?.trim() ||
+                  receivedPhotoUrl ||
                   user.photoUrl,
 
-                birthDate: dto.birthDate
-                  ? new Date(dto.birthDate)
-                  : undefined,
+                birthDate:
+                  dto.birthDate?.trim()
+                    ? new Date(dto.birthDate)
+                    : undefined,
 
                 identityNumber:
                   dto.identityNumber?.trim() ||
@@ -110,17 +120,28 @@ export class DriversService {
               },
             });
 
-          if (dto.photoUrl?.trim()) {
+          /*
+           * A foto do motorista também é a foto da
+           * conta do usuário.
+           */
+          if (receivedPhotoUrl) {
             await transaction.user.update({
-              where: { id: user.id },
-              data: { photoUrl: dto.photoUrl.trim() },
+              where: {
+                id: user.id,
+              },
+
+              data: {
+                photoUrl: receivedPhotoUrl,
+              },
             });
           }
 
           const documents: Prisma.DriverDocumentCreateManyInput[] =
             [];
 
-          if (dto.identityDocumentUrl?.trim()) {
+          if (
+            dto.identityDocumentUrl?.trim()
+          ) {
             documents.push({
               driverId: createdDriver.id,
               type: DocumentType.IDENTITY,
@@ -135,7 +156,8 @@ export class DriversService {
           ) {
             documents.push({
               driverId: createdDriver.id,
-              type: DocumentType.DRIVING_LICENSE,
+              type:
+                DocumentType.DRIVING_LICENSE,
               fileUrl:
                 dto.drivingLicenseDocumentUrl.trim(),
               verified: true,
@@ -226,89 +248,138 @@ export class DriversService {
   ) {
     await this.findById(id);
 
-    await this.prisma.$transaction(
-      async (transaction) => {
-        await transaction.driver.update({
-          where: {
-            id,
-          },
+    const oldDocumentUrls =
+      await this.prisma.$transaction(
+        async (transaction) => {
+          const filesToDelete: string[] = [];
 
-          data: {
-            birthDate:
-              dto.birthDate !== undefined
-                ? new Date(dto.birthDate)
-                : undefined,
+          const currentDriver =
+            await transaction.driver.findUnique({
+              where: {
+                id,
+              },
 
-            identityNumber:
-              dto.identityNumber !== undefined
-                ? dto.identityNumber.trim() || null
-                : undefined,
+              select: {
+                userId: true,
+              },
+            });
 
-            drivingLicenseNumber:
-              dto.drivingLicenseNumber !==
-              undefined
-                ? dto.drivingLicenseNumber.trim() ||
-                  null
-                : undefined,
+          if (!currentDriver) {
+            throw new NotFoundException(
+              'Motorista não encontrado',
+            );
+          }
 
-            nationality:
-              dto.nationality !== undefined
-                ? dto.nationality.trim() || null
-                : undefined,
+          const normalizedPhotoUrl =
+            dto.photoUrl !== undefined
+              ? dto.photoUrl.trim() || null
+              : undefined;
 
-            country:
-              dto.country !== undefined
-                ? dto.country.trim() || null
-                : undefined,
+          await transaction.driver.update({
+            where: {
+              id,
+            },
 
-            address:
-              dto.address !== undefined
-                ? dto.address.trim() || null
-                : undefined,
+            data: {
+              birthDate:
+                dto.birthDate !== undefined
+                  ? dto.birthDate.trim()
+                    ? new Date(dto.birthDate)
+                    : null
+                  : undefined,
 
-            photoUrl:
-              dto.photoUrl !== undefined
-                ? dto.photoUrl.trim() || null
-                : undefined,
-          },
-        });
+              identityNumber:
+                dto.identityNumber !==
+                undefined
+                  ? dto.identityNumber.trim() ||
+                    null
+                  : undefined,
 
-        if (dto.photoUrl !== undefined) {
-          const driver = await transaction.driver.findUnique({
-            where: { id },
-            select: { userId: true },
+              drivingLicenseNumber:
+                dto.drivingLicenseNumber !==
+                undefined
+                  ? dto.drivingLicenseNumber.trim() ||
+                    null
+                  : undefined,
+
+              nationality:
+                dto.nationality !== undefined
+                  ? dto.nationality.trim() ||
+                    null
+                  : undefined,
+
+              country:
+                dto.country !== undefined
+                  ? dto.country.trim() || null
+                  : undefined,
+
+              address:
+                dto.address !== undefined
+                  ? dto.address.trim() || null
+                  : undefined,
+
+              photoUrl: normalizedPhotoUrl,
+            },
           });
 
-          if (driver) {
+          /*
+           * Mantém a foto do User sincronizada com
+           * a foto do perfil Driver.
+           */
+          if (normalizedPhotoUrl !== undefined) {
             await transaction.user.update({
-              where: { id: driver.userId },
+              where: {
+                id: currentDriver.userId,
+              },
+
               data: {
-                photoUrl: dto.photoUrl.trim() || null,
+                photoUrl: normalizedPhotoUrl,
               },
             });
           }
-        }
 
-        if (dto.identityDocumentUrl?.trim()) {
-          await this.saveOrReplaceDocument(
-            transaction,
-            id,
-            DocumentType.IDENTITY,
-            dto.identityDocumentUrl.trim(),
-          );
-        }
+          if (
+            dto.identityDocumentUrl?.trim()
+          ) {
+            const oldUrl =
+              await this.saveOrReplaceDocument(
+                transaction,
+                id,
+                DocumentType.IDENTITY,
+                dto.identityDocumentUrl.trim(),
+              );
 
-        if (
-          dto.drivingLicenseDocumentUrl?.trim()
-        ) {
-          await this.saveOrReplaceDocument(
-            transaction,
-            id,
-            DocumentType.DRIVING_LICENSE,
-            dto.drivingLicenseDocumentUrl.trim(),
-          );
-        }
-      },
+            if (oldUrl) {
+              filesToDelete.push(oldUrl);
+            }
+          }
+
+          if (
+            dto.drivingLicenseDocumentUrl?.trim()
+          ) {
+            const oldUrl =
+              await this.saveOrReplaceDocument(
+                transaction,
+                id,
+                DocumentType.DRIVING_LICENSE,
+                dto.drivingLicenseDocumentUrl.trim(),
+              );
+
+            if (oldUrl) {
+              filesToDelete.push(oldUrl);
+            }
+          }
+
+          return filesToDelete;
+        },
+      );
+
+    /*
+     * Excluímos da Cloudinary somente depois
+     * que a transação do banco foi concluída.
+     */
+    await this.deleteFilesSafely(
+      oldDocumentUrls,
     );
 
     return this.findById(id);
@@ -319,7 +390,7 @@ export class DriversService {
     driverId: string,
     type: DocumentType,
     fileUrl: string,
-  ) {
+  ): Promise<string | null> {
     const existingDocument =
       await transaction.driverDocument.findFirst({
         where: {
@@ -344,7 +415,18 @@ export class DriversService {
         },
       });
 
-      return;
+      /*
+       * Evita excluir o arquivo quando a URL
+       * recebida for a mesma que já estava salva.
+       */
+      if (
+        existingDocument.fileUrl ===
+        fileUrl
+      ) {
+        return null;
+      }
+
+      return existingDocument.fileUrl;
     }
 
     await transaction.driverDocument.create({
@@ -355,30 +437,49 @@ export class DriversService {
         verified: true,
       },
     });
+
+    return null;
   }
 
   async remove(id: string) {
-    const driver = await this.findById(id);
+    const driver =
+      await this.findById(id);
 
-    if (driver.motorcycleLinks.length > 0) {
+    if (
+      driver.motorcycleLinks.length > 0
+    ) {
       throw new BadRequestException(
         'Não é possível excluir este motorista porque ele está vinculado a uma ou mais motas.',
       );
     }
 
-    if (driver.authorizations.length > 0) {
+    if (
+      driver.authorizations.length > 0
+    ) {
       throw new BadRequestException(
         'Não é possível excluir este motorista porque ele possui autorizações de rota.',
       );
     }
 
+    const documentUrls =
+      driver.documents
+        .map((document) =>
+          document.fileUrl?.trim(),
+        )
+        .filter(
+          (url): url is string =>
+            Boolean(url),
+        );
+
     await this.prisma.$transaction(
       async (transaction) => {
-        await transaction.driverDocument.deleteMany({
-          where: {
-            driverId: id,
+        await transaction.driverDocument.deleteMany(
+          {
+            where: {
+              driverId: id,
+            },
           },
-        });
+        );
 
         await transaction.driver.delete({
           where: {
@@ -388,8 +489,76 @@ export class DriversService {
       },
     );
 
+    /*
+     * A foto de perfil não é excluída aqui,
+     * pois continua vinculada à conta User.
+     */
+    await this.deleteFilesSafely(
+      documentUrls,
+    );
+
     return {
-      message: 'Motorista excluído com sucesso',
+      message:
+        'Motorista excluído com sucesso',
     };
+  }
+
+  private async deleteFilesSafely(
+    urls: string[],
+  ): Promise<void> {
+    for (const url of urls) {
+      try {
+        const publicId =
+          this.uploadsService.extractPublicId(
+            url,
+          );
+
+        /*
+         * URLs locais antigas e URLs de outros
+         * serviços não serão removidas.
+         */
+        if (!publicId) {
+          continue;
+        }
+
+        const resourceType =
+          this.getCloudinaryResourceType(
+            url,
+          );
+
+        await this.uploadsService.deleteFile(
+          publicId,
+          resourceType,
+        );
+      } catch (error) {
+        /*
+         * Uma falha na limpeza da Cloudinary não
+         * deve desfazer uma operação já concluída
+         * corretamente no banco.
+         */
+        console.error(
+          `Não foi possível excluir o arquivo antigo da Cloudinary: ${url}`,
+          error,
+        );
+      }
+    }
+  }
+
+  private getCloudinaryResourceType(
+    url: string,
+  ): 'image' | 'video' | 'raw' {
+    if (
+      url.includes('/video/upload/')
+    ) {
+      return 'video';
+    }
+
+    if (
+      url.includes('/raw/upload/')
+    ) {
+      return 'raw';
+    }
+
+    return 'image';
   }
 }

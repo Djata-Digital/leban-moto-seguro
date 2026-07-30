@@ -5,23 +5,26 @@ import {
 } from '@nestjs/common';
 
 import { DocumentType } from '@prisma/client';
-import {
-  existsSync,
-  unlinkSync,
-} from 'node:fs';
-import { join } from 'node:path';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
 
 type MotorcycleUploadFiles = {
   photo?: Express.Multer.File[];
   document?: Express.Multer.File[];
 };
 
+type UploadedCloudinaryFile = {
+  url: string;
+  publicId?: string;
+  resourceType?: 'image' | 'video' | 'raw';
+};
+
 @Injectable()
 export class MotorcycleUploadsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async uploadFiles(
@@ -35,13 +38,15 @@ export class MotorcycleUploadsService {
         },
 
         include: {
-          documents: true,
+          documents: {
+            orderBy: {
+              createdAt: 'desc',
+            },
+          },
         },
       });
 
     if (!motorcycle) {
-      this.deleteUploadedFiles(files);
-
       throw new NotFoundException(
         'Mota não encontrada.',
       );
@@ -56,77 +61,172 @@ export class MotorcycleUploadsService {
       );
     }
 
-    const photoUrl = photo
-      ? `/uploads/motorcycles/photos/${photo.filename}`
-      : undefined;
+    let uploadedPhoto:
+      | UploadedCloudinaryFile
+      | undefined;
 
-    const documentUrl = document
-      ? `/uploads/motorcycles/documents/${document.filename}`
-      : undefined;
+    let uploadedDocument:
+      | UploadedCloudinaryFile
+      | undefined;
 
     try {
-      return await this.prisma.$transaction(
-        async (transaction) => {
-          if (photoUrl) {
-            await transaction.motorcycle.update({
-              where: {
-                id: motorcycleId,
-              },
+      /*
+       * A foto principal é enviada como imagem.
+       */
+      if (photo) {
+        uploadedPhoto =
+          (await this.uploadsService.uploadFile(
+            photo,
+            'motorcycles/photos',
+          )) as UploadedCloudinaryFile;
+      }
 
-              data: {
-                photoUrl,
-              },
-            });
-          }
+      /*
+       * Documentos PDF são enviados como raw.
+       * Imagens de documentos são enviadas como image.
+       */
+      if (document) {
+        uploadedDocument =
+          (await this.uploadsService.uploadFile(
+            document,
+            'motorcycles/documents',
+          )) as UploadedCloudinaryFile;
+      }
 
-          if (documentUrl) {
-            await transaction.motorcycleDocument.deleteMany({
-              where: {
-                motorcycleId,
-              },
-            });
+      const oldPhotoUrl =
+        uploadedPhoto &&
+        motorcycle.photoUrl &&
+        motorcycle.photoUrl !==
+          uploadedPhoto.url
+          ? motorcycle.photoUrl
+          : null;
 
-            await transaction.motorcycleDocument.create({
-              data: {
-                motorcycleId,
-                type: this.getMotorcycleDocumentType(),
-                fileUrl: documentUrl,
-                verified: false,
-              },
-            });
-          }
+      const oldDocumentUrls =
+        uploadedDocument
+          ? motorcycle.documents
+              .map((item) =>
+                item.fileUrl?.trim(),
+              )
+              .filter(
+                (url): url is string =>
+                  Boolean(url) &&
+                  url !==
+                    uploadedDocument?.url,
+              )
+          : [];
 
-          return transaction.motorcycle.findUnique({
-            where: {
-              id: motorcycleId,
-            },
+      const updatedMotorcycle =
+        await this.prisma.$transaction(
+          async (transaction) => {
+            if (uploadedPhoto) {
+              await transaction.motorcycle.update({
+                where: {
+                  id: motorcycleId,
+                },
 
-            include: {
-              owner: {
-                include: {
-                  user: {
-                    select: {
-                      id: true,
-                      fullName: true,
-                      email: true,
-                      phone: true,
-                      photoUrl: true,
-                    },
+                data: {
+                  photoUrl:
+                    uploadedPhoto.url,
+                },
+              });
+            }
+
+            if (uploadedDocument) {
+              await transaction.motorcycleDocument.deleteMany(
+                {
+                  where: {
+                    motorcycleId,
                   },
                 },
-              },
+              );
 
-              documents: true,
-              driverLinks: true,
-              routes: true,
-              gpsDevices: true,
-              theftReports: true,
-            },
-          });
-        },
+              await transaction.motorcycleDocument.create(
+                {
+                  data: {
+                    motorcycleId,
+
+                    type:
+                      this.getMotorcycleDocumentType(),
+
+                    fileUrl:
+                      uploadedDocument.url,
+
+                    verified: false,
+                  },
+                },
+              );
+            }
+
+            return transaction.motorcycle.findUnique(
+              {
+                where: {
+                  id: motorcycleId,
+                },
+
+                include: {
+                  owner: {
+                    include: {
+                      user: {
+                        select: {
+                          id: true,
+                          fullName: true,
+                          email: true,
+                          phone: true,
+                          photoUrl: true,
+                        },
+                      },
+                    },
+                  },
+
+                  documents: {
+                    orderBy: {
+                      createdAt: 'desc',
+                    },
+                  },
+
+                  driverLinks: true,
+                  routes: true,
+                  gpsDevices: true,
+                  theftReports: true,
+                },
+              },
+            );
+          },
+        );
+
+      /*
+       * Arquivos antigos só são apagados depois que
+       * a alteração foi confirmada no banco.
+       */
+      if (oldPhotoUrl) {
+        await this.deleteFileSafely(
+          oldPhotoUrl,
+        );
+      }
+
+      await this.deleteFilesSafely(
+        oldDocumentUrls,
       );
+
+      return updatedMotorcycle;
     } catch (error) {
-      this.deleteUploadedFiles(files);
+      /*
+       * Se o upload ocorreu, mas o banco falhou,
+       * removemos os novos arquivos para não deixar
+       * arquivos órfãos na Cloudinary.
+       */
+      if (uploadedPhoto?.url) {
+        await this.deleteFileSafely(
+          uploadedPhoto.url,
+        );
+      }
+
+      if (uploadedDocument?.url) {
+        await this.deleteFileSafely(
+          uploadedDocument.url,
+        );
+      }
+
       throw error;
     }
   }
@@ -165,27 +265,61 @@ export class MotorcycleUploadsService {
     return firstType;
   }
 
-  private deleteUploadedFiles(
-    files: MotorcycleUploadFiles,
-  ) {
-    const allFiles = [
-      ...(files.photo ?? []),
-      ...(files.document ?? []),
-    ];
+  private async deleteFilesSafely(
+    urls: string[],
+  ): Promise<void> {
+    for (const url of urls) {
+      await this.deleteFileSafely(url);
+    }
+  }
 
-    for (const file of allFiles) {
-      try {
-        const filePath = join(
-          process.cwd(),
-          file.path,
+  private async deleteFileSafely(
+    url: string,
+  ): Promise<void> {
+    try {
+      const publicId =
+        this.uploadsService.extractPublicId(
+          url,
         );
 
-        if (existsSync(filePath)) {
-          unlinkSync(filePath);
-        }
-      } catch {
-        // Evita que um erro de limpeza esconda o erro principal.
+      /*
+       * URLs locais antigas ou URLs externas não
+       * reconhecidas serão ignoradas.
+       */
+      if (!publicId) {
+        return;
       }
+
+      const resourceType =
+        this.getCloudinaryResourceType(url);
+
+      await this.uploadsService.deleteFile(
+        publicId,
+        resourceType,
+      );
+    } catch (error) {
+      /*
+       * Uma falha na limpeza não deve invalidar
+       * uma atualização concluída no banco.
+       */
+      console.error(
+        `Não foi possível excluir o arquivo da Cloudinary: ${url}`,
+        error,
+      );
     }
+  }
+
+  private getCloudinaryResourceType(
+    url: string,
+  ): 'image' | 'video' | 'raw' {
+    if (url.includes('/video/upload/')) {
+      return 'video';
+    }
+
+    if (url.includes('/raw/upload/')) {
+      return 'raw';
+    }
+
+    return 'image';
   }
 }
