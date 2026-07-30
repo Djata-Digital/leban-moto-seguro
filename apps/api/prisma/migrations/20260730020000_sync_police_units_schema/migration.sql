@@ -1,4 +1,4 @@
-﻿-- CreateEnum
+-- CreateEnum
 CREATE TYPE "PoliceOfficerOperationalStatus" AS ENUM (
   'DISPONIVEL',
   'EM_MISSAO',
