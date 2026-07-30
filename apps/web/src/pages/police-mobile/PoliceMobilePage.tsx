@@ -16,6 +16,7 @@ import {
   type ViewerImage,
 } from '../../components/images/ImageViewer';
 import { PoliceQrScanner } from '../../components/police-mobile/PoliceQrScanner';
+import { IgnitionControlPanel } from '../../components/ignition/IgnitionControlPanel';
 
 import {
   getOfflineStatistics,
@@ -245,7 +246,7 @@ export function PoliceMobilePage() {
             value,
         );
 
-        if (offlineResult && !navigator.onLine) {
+        if (offlineResult) {
         setMotorcycle(
             offlineResult,
         );
@@ -978,6 +979,10 @@ export function PoliceMobilePage() {
                 )}
               </div>
 
+              {stolen && navigator.onLine && (
+                <IgnitionControlPanel motorcycleId={motorcycle.id} policeMode />
+              )}
+
               <Information
                 label="Chassi"
                 value={
@@ -1164,31 +1169,7 @@ function getCurrentDriver(
       (link) => link.isActive,
     );
 
-  const driver = activeLink?.driver;
-
-  if (!driver) {
-    return null;
-  }
-
-  return {
-    ...driver,
-    fullName:
-      driver.fullName ??
-      driver.user?.fullName ??
-      'Não informado',
-    phone:
-      driver.phone ??
-      driver.user?.phone ??
-      null,
-    email:
-      driver.email ??
-      driver.user?.email ??
-      null,
-    photoUrl:
-      driver.photoUrl ??
-      driver.user?.photoUrl ??
-      null,
-  };
+  return activeLink?.driver ?? null;
 }
 
 function buildInspectionImages(

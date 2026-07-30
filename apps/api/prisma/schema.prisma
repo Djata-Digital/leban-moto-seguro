@@ -27,6 +27,7 @@ model User {
   policeProfile    PoliceOfficer?
   PoliceUnit       PoliceUnit?
   userPermissions  UserPermission[]
+  ignitionCommands IgnitionCommand[]
 }
 
 model Owner {
@@ -123,6 +124,7 @@ model Motorcycle {
   policeChecks   PoliceCheck[]
   authorizations RouteAuthorization[]
   theftReports   TheftReport[]
+  ignitionCommands IgnitionCommand[]
 }
 
 model DriverMotorcycleLink {
@@ -262,6 +264,7 @@ model GpsDevice {
   alerts              Alert[]
   motorcycle          Motorcycle    @relation(fields: [motorcycleId], references: [id])
   locations           GpsLocation[]
+  ignitionCommands    IgnitionCommand[]
 
   @@index([motorcycleId, isActive])
   @@index([lastCommunicationAt])
@@ -279,6 +282,32 @@ model GpsLocation {
   recordedAt  DateTime  @default(now())
   createdAt   DateTime  @default(now())
   gpsDevice   GpsDevice @relation(fields: [gpsDeviceId], references: [id])
+}
+
+model IgnitionCommand {
+  id                    String                @id @default(uuid())
+  motorcycleId          String
+  gpsDeviceId            String
+  requestedByUserId     String
+  type                  IgnitionCommandType
+  status                IgnitionCommandStatus @default(REQUESTED)
+  reason                String
+  incidentNumber        String?
+  requestedSpeed        Float?
+  requestedLatitude     Float?
+  requestedLongitude    Float?
+  deviceResponse        String?
+  requestedAt           DateTime              @default(now())
+  sentAt                 DateTime?
+  confirmedAt            DateTime?
+  completedAt            DateTime?
+  expiresAt              DateTime?
+  motorcycle             Motorcycle            @relation(fields: [motorcycleId], references: [id], onDelete: Cascade)
+  gpsDevice              GpsDevice              @relation(fields: [gpsDeviceId], references: [id], onDelete: Cascade)
+  requestedBy            User                   @relation(fields: [requestedByUserId], references: [id])
+
+  @@index([motorcycleId, requestedAt])
+  @@index([gpsDeviceId, status])
 }
 
 model OwnerDocument {
@@ -736,4 +765,22 @@ enum PoliceUnitType {
   POLICIA_TRANSITO
   POLICIA_JUDICIARIA
   GUARDA_COSTEIRA
+}
+
+
+enum IgnitionCommandType {
+  BLOCK_NEXT_START
+  SAFE_SHUTDOWN
+  UNBLOCK
+}
+
+enum IgnitionCommandStatus {
+  REQUESTED
+  WAITING_FOR_DEVICE
+  WAITING_FOR_STOP
+  SENT
+  CONFIRMED
+  FAILED
+  CANCELLED
+  EXPIRED
 }
