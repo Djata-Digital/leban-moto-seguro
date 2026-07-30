@@ -243,19 +243,28 @@ model TheftReportEvent {
 }
 
 model GpsDevice {
-  id               String        @id @default(uuid())
-  motorcycleId     String
-  imei             String        @unique
-  simNumber        String?
-  provider         String?
-  deviceModel      String?
-  isActive         Boolean       @default(true)
-  hasBackupBattery Boolean       @default(true)
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  alerts           Alert[]
-  motorcycle       Motorcycle    @relation(fields: [motorcycleId], references: [id])
-  locations        GpsLocation[]
+  id                  String        @id @default(uuid())
+  motorcycleId        String
+  imei                String        @unique
+  simNumber           String?
+  iccid                String?       @unique
+  provider            String?
+  apn                  String?
+  deviceModel         String?
+  firmwareVersion     String?
+  isActive            Boolean       @default(true)
+  hasBackupBattery    Boolean       @default(true)
+  lastCommunicationAt DateTime?
+  batteryLevel        Float?
+  signalStrength      Float?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  alerts              Alert[]
+  motorcycle          Motorcycle    @relation(fields: [motorcycleId], references: [id])
+  locations           GpsLocation[]
+
+  @@index([motorcycleId, isActive])
+  @@index([lastCommunicationAt])
 }
 
 model GpsLocation {

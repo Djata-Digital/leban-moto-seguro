@@ -17,6 +17,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../common/guards/permissions.guard';
 import { Permissions } from '../common/decorators/permissions.decorator';
 import { GpsHistoryQueryDto } from './dto/gps-history-query.dto';
+import { UpdateGpsDeviceDto } from './dto/update-gps-device.dto';
 
 @Controller('gps')
 @UseGuards(JwtAuthGuard, PermissionsGuard)
@@ -43,6 +44,15 @@ export class GpsController {
   @Get('devices/:id')
   findDeviceById(@Param('id') id: string) {
     return this.gpsService.findDeviceById(id);
+  }
+
+  @Permissions('gps.create')
+  @Patch('devices/:id')
+  updateDevice(
+    @Param('id') id: string,
+    @Body() dto: UpdateGpsDeviceDto,
+  ) {
+    return this.gpsService.updateDevice(id, dto);
   }
 
   @Permissions('gps.view')

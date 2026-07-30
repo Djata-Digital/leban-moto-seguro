@@ -1,20 +1,19 @@
 import {
   IsBoolean,
-  IsNotEmpty,
   IsOptional,
   IsString,
   MaxLength,
 } from 'class-validator';
 
-export class CreateGpsDeviceDto {
+export class UpdateGpsDeviceDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  motorcycleId!: string;
+  motorcycleId?: string;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(40)
-  imei!: string;
+  imei?: string;
 
   @IsOptional()
   @IsString()
