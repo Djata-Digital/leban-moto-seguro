@@ -18,6 +18,8 @@ import {
   getHomeRoute,
   getStoredUser,
   isStoredSessionCompatible,
+  isPoliceRole,
+  getUserRole,
 } from '../../auth/auth';
 
 import {
@@ -143,10 +145,12 @@ export function LoginPage() {
         getHomeRoute(payload.user);
 
       const destination =
-        requestedRoute &&
-        requestedRoute !== '/login'
-          ? requestedRoute
-          : homeRoute;
+        isPoliceRole(getUserRole(payload.user))
+          ? homeRoute
+          : requestedRoute &&
+              requestedRoute !== '/login'
+            ? requestedRoute
+            : homeRoute;
 
       navigate(destination, {
         replace: true,

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma/prisma.module';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { UploadsModule } from '../uploads/uploads.module';
 
 import { PoliceOfficersController } from './police-officers.controller';
 import { PoliceOfficersService } from './police-officers.service';
@@ -10,6 +11,7 @@ import { PoliceOfficersService } from './police-officers.service';
   imports: [
     PrismaModule,
     RealtimeModule,
+    UploadsModule,
   ],
   controllers: [
     PoliceOfficersController,

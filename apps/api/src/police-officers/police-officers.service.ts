@@ -8,6 +8,7 @@ import { PoliceAccessType, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 
 import { PrismaService } from '../prisma/prisma.service';
+import { UploadsService } from '../uploads/uploads.service';
 import { CreatePoliceOfficerDto } from './dto/create-police-officer.dto';
 import { UpdatePoliceOfficerDto } from './dto/update-police-officer.dto';
 import { UpdatePoliceStatusDto } from './dto/update-police-status.dto';
@@ -19,6 +20,7 @@ export class PoliceOfficersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtimeGateway: RealtimeGateway,
+    private readonly uploadsService: UploadsService,
   ) {}
 
   async create(dto: CreatePoliceOfficerDto) {
@@ -123,12 +125,30 @@ export class PoliceOfficersService {
   async update(id: string, dto: UpdatePoliceOfficerDto) {
     const officer = await this.findById(id);
 
-    const email = dto.email?.trim().toLowerCase();
-    const phone = dto.phone?.trim();
+    const normalizedEmail =
+      dto.email !== undefined
+        ? dto.email.trim().toLowerCase() || null
+        : undefined;
 
-    if (email && email !== officer.user.email) {
-      const existingEmail = await this.prisma.user.findUnique({
-        where: { email },
+    const normalizedPhone =
+      dto.phone !== undefined
+        ? dto.phone.trim() || null
+        : undefined;
+
+    const normalizedPhotoUrl =
+      dto.photoUrl !== undefined
+        ? dto.photoUrl.trim() || null
+        : undefined;
+
+    if (
+      normalizedEmail &&
+      normalizedEmail !== officer.user.email
+    ) {
+      const existingEmail = await this.prisma.user.findFirst({
+        where: {
+          email: normalizedEmail,
+          id: { not: officer.userId },
+        },
       });
 
       if (existingEmail) {
@@ -136,9 +156,15 @@ export class PoliceOfficersService {
       }
     }
 
-    if (phone && phone !== officer.user.phone) {
-      const existingPhone = await this.prisma.user.findUnique({
-        where: { phone },
+    if (
+      normalizedPhone &&
+      normalizedPhone !== officer.user.phone
+    ) {
+      const existingPhone = await this.prisma.user.findFirst({
+        where: {
+          phone: normalizedPhone,
+          id: { not: officer.userId },
+        },
       });
 
       if (existingPhone) {
@@ -146,13 +172,19 @@ export class PoliceOfficersService {
       }
     }
 
-    if (dto.badgeNumber && dto.badgeNumber !== officer.badgeNumber) {
+    const normalizedBadge =
+      dto.badgeNumber !== undefined
+        ? dto.badgeNumber.trim() || null
+        : undefined;
+
+    if (
+      normalizedBadge &&
+      normalizedBadge !== officer.badgeNumber
+    ) {
       const existingBadge = await this.prisma.policeOfficer.findFirst({
         where: {
-          badgeNumber: dto.badgeNumber.trim(),
-          id: {
-            not: id,
-          },
+          badgeNumber: normalizedBadge,
+          id: { not: id },
         },
       });
 
@@ -161,31 +193,74 @@ export class PoliceOfficersService {
       }
     }
 
-    return this.prisma.$transaction(async (transaction) => {
+    const oldPhotoUrl =
+      normalizedPhotoUrl !== undefined &&
+      officer.photoUrl &&
+      officer.photoUrl !== normalizedPhotoUrl
+        ? officer.photoUrl
+        : null;
+
+    const updated = await this.prisma.$transaction(async (transaction) => {
       await transaction.user.update({
-        where: {
-          id: officer.userId,
-        },
+        where: { id: officer.userId },
         data: {
-          fullName: dto.fullName?.trim(),
-          email,
-          phone,
+          fullName:
+            dto.fullName !== undefined
+              ? dto.fullName.trim()
+              : undefined,
+          email: normalizedEmail,
+          phone: normalizedPhone,
+          photoUrl: normalizedPhotoUrl,
+          role: UserRole.POLICIA,
+          policeAccessType: PoliceAccessType.OPERATIONS,
         },
       });
 
       return transaction.policeOfficer.update({
         where: { id },
         data: {
-          fullName: dto.fullName?.trim(),
-          identityNumber: dto.identityNumber?.trim(),
-          badgeNumber: dto.badgeNumber?.trim(),
-          stationName: dto.stationName?.trim(),
-          phone,
-          photoUrl: dto.photoUrl?.trim(),
+          fullName:
+            dto.fullName !== undefined
+              ? dto.fullName.trim()
+              : undefined,
+          identityNumber:
+            dto.identityNumber !== undefined
+              ? dto.identityNumber.trim() || null
+              : undefined,
+          badgeNumber: normalizedBadge,
+          stationName:
+            dto.stationName !== undefined
+              ? dto.stationName.trim() || null
+              : undefined,
+          phone: normalizedPhone,
+          photoUrl: normalizedPhotoUrl,
         },
         include: this.defaultInclude(),
       });
     });
+
+    if (oldPhotoUrl) {
+      await this.deletePhotoSafely(oldPhotoUrl);
+    }
+
+    return updated;
+  }
+
+  private async deletePhotoSafely(url: string) {
+    try {
+      const publicId = this.uploadsService.extractPublicId(url);
+
+      if (!publicId) {
+        return;
+      }
+
+      await this.uploadsService.deleteFile(publicId, 'image');
+    } catch (error) {
+      console.error(
+        `Não foi possível excluir a foto antiga do policial: ${url}`,
+        error,
+      );
+    }
   }
 
   async updateStatus(id: string, dto: UpdatePoliceStatusDto) {

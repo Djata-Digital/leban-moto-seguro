@@ -256,6 +256,20 @@ export class UsersService {
     });
   }
 
+  async updatePoliceAccessType(
+    userId: string,
+    policeAccessType: PoliceAccessType,
+  ) {
+    return this.prisma.user.update({
+      where: { id: userId },
+      data: { policeAccessType },
+      select: {
+        id: true,
+        policeAccessType: true,
+      },
+    });
+  }
+
   private async deletePhotoSafely(url: string) {
     try {
       const publicId = this.uploadsService.extractPublicId(url);

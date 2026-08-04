@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { UsersService } from '../users/users.service';
 import { LoginDto } from './dto/login.dto';
+import { PoliceAccessType } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -43,13 +44,28 @@ export class AuthService {
       );
     }
 
+    const effectivePoliceAccessType =
+      user.policeProfile?.id
+        ? PoliceAccessType.OPERATIONS
+        : user.policeAccessType;
+
+    if (
+      user.policeProfile?.id &&
+      user.policeAccessType !== PoliceAccessType.OPERATIONS
+    ) {
+      await this.usersService.updatePoliceAccessType(
+        user.id,
+        PoliceAccessType.OPERATIONS,
+      );
+    }
+
     const payload = {
       sub: user.id,
       fullName: user.fullName,
       email: user.email,
       phone: user.phone,
       role: user.role,
-      policeAccessType: user.policeAccessType,
+      policeAccessType: effectivePoliceAccessType,
       policeOfficerId: user.policeProfile?.id,
     };
 
@@ -64,7 +80,7 @@ export class AuthService {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        policeAccessType: user.policeAccessType,
+        policeAccessType: effectivePoliceAccessType,
         policeOfficerId: user.policeProfile?.id,
         status: user.status,
       },
