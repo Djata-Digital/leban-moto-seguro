@@ -17,6 +17,7 @@ import {
 } from '@leban/shared';
 
 import { api } from '../../api/api';
+import { ClickableImage } from '../../components/common/ClickableImage';
 
 import { MotorcycleQrActions } from '../../components/motorcycles/MotorcycleQrActions';
 
@@ -847,9 +848,10 @@ export function MotorcyclesPage() {
                   Pré-visualização da foto
                 </p>
 
-                <img
+                <ClickableImage
                   src={photoPreview}
                   alt="Pré-visualização da mota"
+                  title="Pré-visualização da foto da mota"
                   className="h-48 w-full rounded-xl border object-cover"
                 />
               </div>
@@ -979,11 +981,12 @@ export function MotorcyclesPage() {
               >
                 <td className="p-3">
                   {moto.photoUrl ? (
-                    <img
+                    <ClickableImage
                       src={getFileUrl(
                         moto.photoUrl,
                       )}
                       alt={`${moto.brand} ${moto.model ?? ''}`}
+                      title={`Foto da mota ${moto.plateNumber}`}
                       className="h-12 w-16 rounded-lg border object-cover"
                     />
                   ) : (

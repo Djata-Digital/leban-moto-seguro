@@ -8,10 +8,10 @@ import {
   Trash2,
   UserCheck,
   UserX,
-  Upload,
 } from 'lucide-react';
 
 import { api } from '../../api/api';
+import { ClickableImage } from '../../components/common/ClickableImage';
 
 type UserStatus =
   | 'PENDING'
@@ -41,8 +41,6 @@ type PoliceOfficer = {
     role: string;
     status: UserStatus;
     createdAt?: string;
-    photoUrl?: string;
-    policeAccessType?: string;
   };
 
   _count?: {
@@ -82,9 +80,6 @@ export function PolicePage() {
     useState<PoliceOfficer | null>(null);
   const [search, setSearch] = useState('');
   const [form, setForm] = useState<PoliceForm>(initialForm);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [photoPreview, setPhotoPreview] = useState('');
-  const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   async function loadOfficers() {
     setLoading(true);
@@ -145,8 +140,6 @@ export function PolicePage() {
   function openCreateForm() {
     setEditingOfficer(null);
     setForm(initialForm);
-    setPhotoFile(null);
-    setPhotoPreview('');
     setShowForm(true);
   }
 
@@ -164,8 +157,6 @@ export function PolicePage() {
       photoUrl: officer.photoUrl ?? '',
     });
 
-    setPhotoFile(null);
-    setPhotoPreview(officer.photoUrl ?? officer.user?.photoUrl ?? '');
     setShowForm(true);
   }
 
@@ -176,42 +167,7 @@ export function PolicePage() {
 
     setEditingOfficer(null);
     setForm(initialForm);
-    setPhotoFile(null);
-    setPhotoPreview('');
     setShowForm(false);
-  }
-
-  async function uploadSelectedPhoto() {
-    if (!photoFile) {
-      return form.photoUrl.trim() || undefined;
-    }
-
-    setUploadingPhoto(true);
-
-    try {
-      const data = new FormData();
-      data.append('file', photoFile);
-
-      const response = await api.post(
-        '/uploads/users/profile',
-        data,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        },
-      );
-
-      const payload = response.data?.data ?? response.data;
-
-      if (!payload?.url) {
-        throw new Error('A API não retornou a URL da foto.');
-      }
-
-      return String(payload.url);
-    } finally {
-      setUploadingPhoto(false);
-    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -235,17 +191,15 @@ export function PolicePage() {
     try {
       setSaving(true);
 
-      const photoUrl = await uploadSelectedPhoto();
-
       if (editingOfficer) {
         await api.patch(`/police-officers/${editingOfficer.id}`, {
           fullName: form.fullName.trim(),
-          email: form.email.trim() || null,
-          phone: form.phone.trim() || null,
-          identityNumber: form.identityNumber.trim() || null,
-          badgeNumber: form.badgeNumber.trim() || null,
-          stationName: form.stationName.trim() || null,
-          photoUrl: photoUrl ?? null,
+          email: form.email.trim() || undefined,
+          phone: form.phone.trim() || undefined,
+          identityNumber: form.identityNumber.trim() || undefined,
+          badgeNumber: form.badgeNumber.trim() || undefined,
+          stationName: form.stationName.trim() || undefined,
+          photoUrl: form.photoUrl.trim() || undefined,
         });
       } else {
         await api.post('/police-officers', {
@@ -256,29 +210,17 @@ export function PolicePage() {
           identityNumber: form.identityNumber.trim() || undefined,
           badgeNumber: form.badgeNumber.trim() || undefined,
           stationName: form.stationName.trim() || undefined,
-          photoUrl,
+          photoUrl: form.photoUrl.trim() || undefined,
         });
       }
 
       await loadOfficers();
-
-      const wasEditing = Boolean(editingOfficer);
-      setEditingOfficer(null);
-      setForm(initialForm);
-      setPhotoFile(null);
-      setPhotoPreview('');
-      setShowForm(false);
+      closeForm();
 
       alert(
-        wasEditing
+        editingOfficer
           ? 'Policial atualizado com sucesso.'
           : 'Policial cadastrado com sucesso.',
-      );
-    } catch (error: any) {
-      alert(
-        error?.response?.data?.message ??
-          error?.message ??
-          'Não foi possível salvar o policial.',
       );
     } finally {
       setSaving(false);
@@ -423,9 +365,10 @@ export function PolicePage() {
                   <td className="p-3">
                     <div className="flex items-center gap-3">
                       {officer.photoUrl ? (
-                        <img
+                        <ClickableImage
                           src={officer.photoUrl}
                           alt={officer.fullName}
+                          title={`Foto de ${officer.fullName}`}
                           className="h-10 w-10 rounded-full object-cover"
                         />
                       ) : (
@@ -639,49 +582,16 @@ export function PolicePage() {
                 }
               />
 
-              <div className="md:col-span-2">
-                <label className="text-sm font-semibold text-slate-700">
-                  Foto do policial
-                </label>
-
-                <div className="mt-2 flex flex-col gap-4 rounded-xl border border-dashed border-slate-300 p-4 sm:flex-row sm:items-center">
-                  {photoPreview ? (
-                    <img
-                      src={photoPreview}
-                      alt="Pré-visualização da foto"
-                      className="h-24 w-24 rounded-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-24 w-24 items-center justify-center rounded-full bg-slate-100 text-slate-400">
-                      <Shield size={30} />
-                    </div>
-                  )}
-
-                  <div className="flex-1">
-                    <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200">
-                      <Upload size={16} />
-                      Escolher foto
-                      <input
-                        type="file"
-                        accept="image/jpeg,image/png,image/webp"
-                        className="hidden"
-                        onChange={(event) => {
-                          const file = event.target.files?.[0] ?? null;
-                          setPhotoFile(file);
-
-                          if (file) {
-                            setPhotoPreview(URL.createObjectURL(file));
-                          }
-                        }}
-                      />
-                    </label>
-
-                    <p className="mt-2 text-xs text-slate-500">
-                      JPG, PNG ou WEBP. A imagem será guardada na Cloudinary.
-                    </p>
-                  </div>
-                </div>
-              </div>
+              <Input
+                label="URL da foto"
+                value={form.photoUrl}
+                onChange={(value) =>
+                  setForm((previous) => ({
+                    ...previous,
+                    photoUrl: value,
+                  }))
+                }
+              />
             </div>
 
             <div className="flex justify-end gap-2 border-t p-5">
@@ -696,10 +606,10 @@ export function PolicePage() {
 
               <button
                 type="submit"
-                disabled={saving || uploadingPhoto}
+                disabled={saving}
                 className="rounded-lg bg-blue-600 px-5 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                {saving || uploadingPhoto
+                {saving
                   ? 'Salvando...'
                   : editingOfficer
                     ? 'Atualizar policial'

@@ -10,6 +10,7 @@ import type {
 } from 'react';
 
 import { api } from '../../api/api';
+import { ClickableImage } from '../../components/common/ClickableImage';
 
 type User = {
   id: string;
@@ -818,9 +819,10 @@ function Avatar({
 
   if (photoUrl) {
     return (
-      <img
+      <ClickableImage
         src={getFileUrl(photoUrl)}
         alt={name}
+        title={`Foto de ${name}`}
         className={`${dimensions} rounded-full border object-cover`}
       />
     );
